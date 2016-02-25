@@ -7,11 +7,11 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- User Configuration --------------- */
 
     // API Parameters
-    view_model.readAPI = "http://127.0.0.1:7000/get?after=";
-    view_model.updateAPI = "/angularexample/updateElements/";
-    view_model.createAPI = "/angularexample/createElements/";
+    view_model.readAPI = "http://188.166.147.80/get?after=";
+    view_model.updateAPI = "http://188.166.147.80/post";
+    view_model.createAPI = "http://188.166.147.80/post";
     view_model.primaryKeyProperty = "id";
-    view_model.timestampProperty = "fields.timestamp";
+    view_model.timestampProperty = "timestamp";
 
     // (Optional) Offlineify Config:
     view_model.autoSync = 10000; /* Set to zero for no auto synchronisation */
@@ -22,7 +22,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // (Optional) IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB";
-    view_model.indexedDBVersionNumber = 145; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 149; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
