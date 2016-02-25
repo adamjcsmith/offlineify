@@ -39,8 +39,8 @@
             <p></p>
             <p>Objects are written to IndexedDB automatically. The app will
               synchronise every ten seconds, checking an API for new data.
-              Alter the parameters in js/services/offlineDB.js to your API.</p>
-            <p><strong>Important:</strong> your API must have an <a href="http://www.w3schools.com/jsref/jsref_toisostring.asp">ISO8601 timestamp</a> property in order for Offlineify to work.</p>
+              Alter the parameters in js/services/offlineService.js to your API.</p>
+            <p><strong>Important:</strong> your API must have an <a href="http://www.w3schools.com/jsref/jsref_toisostring.asp">ISO8601 timestamp</a> property in order for Offlinify to work.</p>
             <p>Note: To make your app truly offline-capable, integrate this with <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Using_the_application_cache">AppCache</a>.</p>
           </div>
         </div>
@@ -54,9 +54,9 @@
               <div ng-class="{'card': true, 'off': !item.fields.clicked}" ng-hide="item.fields.deleted" ng-repeat="item in dataModel">
                 <div class="content">
                   <i class="close link right floated icon" ng-click="item.fields.deleted = true"></i>
-                  <div class="header">{{ item.fields.text }}</div>
+                  <div class="header">{{ item.fields.name }}</div>
                   <div class="meta">
-                    <h6>{{item.pk}}</h6>
+                    <h6>{{item.timestamp}}</h6>
                   </div>
                 </div>
                 <div class="extra content">
