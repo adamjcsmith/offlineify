@@ -1,28 +1,36 @@
 'use strict';
 
 angular.module('offlineApp')
-  .controller('mainCtrl', function($scope, offlineDB) {
+  .controller('mainCtrl', function($scope, offlineService) {
 
     /* Controller Model */
     $scope.dataModel = [];
 
     // Function declarations:
     $scope.forceRefresh = forceRefresh;
-    $scope.objectUpdate = offlineDB.objectUpdate;
+    $scope.objectUpdate = offlineService.objectUpdate;
+    $scope.wipeIndexedDB = wipeIndexedDB;
 
     /* Controller observer-pattern function */
     var updateCtrl = function(response) {
-      $scope.dataModel = offlineDB.serviceDB;
+      $scope.dataModel = offlineService.serviceDB;
       _updateToUI("Update: " + response);
     };
 
     // Register this controller with the service:
-    offlineDB.registerController(updateCtrl);
+    offlineService.registerController(updateCtrl);
 
     // Force a sync cycle when a user requests it:
     function forceRefresh() {
-      offlineDB.newSyncThree(function(response) {
+      offlineService.newSyncThree(function(response) {
         updateCtrl(response);
+      });
+    };
+
+    // For diagnostics, allow wiping of IndexedDB:
+    function wipeIndexedDB() {
+      offlineService.wipeIndexedDB(function() {
+        forceRefresh();
       });
     };
 

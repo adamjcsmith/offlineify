@@ -1,8 +1,10 @@
 'use strict';
 
-angular.module('offlineApp').service('offlineDB', function($http) {
+angular.module('offlineApp').service('offlineService', function($http) {
 
     var view_model = this;
+
+    /* --------------- User Configuration --------------- */
 
     // API Parameters
     view_model.readAPI = "http://jsonplaceholder.typicode.com/posts?after=";
@@ -19,8 +21,11 @@ angular.module('offlineApp').service('offlineDB', function($http) {
     view_model.allowRemote = true;
 
     // (Optional) IndexedDB Config:
-    view_model.objectStoreName = "testObjectStore";
+    view_model.indexedDBDatabaseName = "localDB";
     view_model.indexedDBVersionNumber = 144; /* Increment this to wipe and reset IndexedDB */
+    view_model.objectStoreName = "testObjectStore";
+
+    /* --------------- Offlinify Internals --------------- */
 
     // Service Variables
     view_model.idb = null;
@@ -33,16 +38,17 @@ angular.module('offlineApp').service('offlineDB', function($http) {
     view_model.generateTimestamp = generateTimestamp;
     view_model.newSyncThree = newSyncThree;
     view_model.objectUpdate = objectUpdate;
+    view_model.wipeIndexedDB = wipeIndexedDB;
 
     // Determine IndexedDB Support
     view_model.indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!view_model.allowIndexedDB) view_model.indexedDB = null;
 
+    /* --------------- Create & Update --------------- */
+
     // Filters create or update ops by queue state:
     function objectUpdate(obj) {
-
       _.set(obj, view_model.timestampProperty, generateTimestamp());
-
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
       } else {
@@ -296,7 +302,7 @@ angular.module('offlineApp').service('offlineDB', function($http) {
 
     function _establishIndexedDB(callback) {
       if(!_hasIndexedDB()) { callback(); /* No browser support for IDB */ return; }
-      var request = view_model.indexedDB.open('localDB', view_model.indexedDBVersionNumber);
+      var request = view_model.indexedDB.open(view_model.indexedDBDatabaseName, view_model.indexedDBVersionNumber);
       request.onupgradeneeded = function(e) {
         var db = e.target.result;
         e.target.transaction.onerror = function() { console.error(this.error); };
@@ -362,7 +368,13 @@ angular.module('offlineApp').service('offlineDB', function($http) {
 
     function _newIDBTransaction() {
       return view_model.idb.transaction([view_model.objectStoreName], 'readwrite');
-    }
+    };
+
+    // Only used for diagnostics:
+    function wipeIndexedDB(callback) {
+      var req = view_model.indexedDB.deleteDatabase(view_model.indexedDBDatabaseName);
+      req.onsuccess = function(event) { callback(); }
+    };
 
     /* --------------- Utilities --------------- */
 
@@ -395,9 +407,7 @@ angular.module('offlineApp').service('offlineDB', function($http) {
     if(view_model.autoSync > 0 && parseInt(view_model.autoSync) === view_model.autoSync) {
       (function syncLoop() {
         setTimeout(function() {
-          console.log("The global timestamp lastChecked was: " + view_model.lastChecked);
           newSyncThree(function(response) {
-            console.log("Response was: " + response);
             _notifyObservers(response);
           });
           syncLoop();

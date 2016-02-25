@@ -12,7 +12,7 @@ lib/lodash.js
 css/semantic.min.js
 js/app.js"></script>
 js/controllers/mainCtrl.js
-js/services/offlineDB.js
+js/services/offlineService.js
 js/directives/card.js
 css/semantic.min.css
 icon.ico
