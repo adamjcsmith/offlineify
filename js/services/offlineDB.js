@@ -265,6 +265,7 @@ angular.module('offlineApp').service('offlineDB', function($http) {
         })
         .then(
           function successCallback(response) {
+            console.log("Got the data");
             if(response.data.length > 0)
               callback({data: _resetSyncState(response.data), status: 200});
             else

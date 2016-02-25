@@ -6,10 +6,9 @@ angular.module('offlineApp')
     /* Controller Model */
     $scope.dataModel = [];
 
-    $scope.createObject = createObject;
+    // Function declarations:
     $scope.forceRefresh = forceRefresh;
-    $scope.updateObject = updateObject;
-    $scope.deleteObject = deleteObject;
+    $scope.objectUpdate = offlineDB.objectUpdate;
 
     /* Controller observer-pattern function */
     var updateCtrl = function(response) {
@@ -17,32 +16,16 @@ angular.module('offlineApp')
       _updateToUI("Update: " + response);
     };
 
+    // Register this controller with the service:
     offlineDB.registerController(updateCtrl);
 
-    // Package an object and send to Service
-    function createObject(localObject) {
-      localObject.deleted = false;
-      var newObject = { fields: localObject }; /* This puts the object into a django-friendly format */
-      offlineDB.objectUpdate(newObject);
-    };
-
-    function updateObject(localObject) {
-      localObject.fields.timestamp = offlineDB.generateTimestamp();
-      offlineDB.objectUpdate(localObject);
-    }
-
-    function deleteObject(localObject) {
-      localObject.fields.deleted = true;
-      updateObject(localObject);
-    }
-
+    // Force a sync cycle when a user requests it:
     function forceRefresh() {
       offlineDB.newSyncThree(function(response) {
         updateCtrl(response);
       });
     };
 
-    /* ---------- Private functions ---------- */
     function _updateToUI(text) {
       $scope.$applyAsync();
       _sendNotification(text);
