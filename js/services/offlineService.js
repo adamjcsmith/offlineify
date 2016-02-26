@@ -7,7 +7,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- User Configuration --------------- */
 
     // API Parameters
-    view_model.readAPI = "http://188.166.147.80/get?after=";
+    view_model.readAPI = "http://188.166.147.80/getBig?after=";
     view_model.updateAPI = "http://188.166.147.80/post";
     view_model.createAPI = "http://188.166.147.80/post";
     view_model.primaryKeyProperty = "id";
@@ -22,7 +22,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // (Optional) IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB";
-    view_model.indexedDBVersionNumber = 149; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 157; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -49,10 +49,11 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Filters create or update ops by queue state:
     function objectUpdate(obj) {
       _.set(obj, view_model.timestampProperty, generateTimestamp());
+      obj = _stripAngularHashKeys(obj);
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
       } else {
-        obj = _.cloneDeep(_stripAngularHashKeys(obj));
+        obj = _.cloneDeep(obj);
         obj.syncState = 0;
         _.set(obj, view_model.primaryKeyProperty, _generateUUID());
       }
@@ -271,7 +272,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
         })
         .then(
           function successCallback(response) {
-            console.log("Got the data");
             if(response.data.length > 0)
               callback({data: _resetSyncState(response.data), status: 200});
             else
@@ -331,7 +331,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var keyRange = IDBKeyRange.lowerBound(0);
       var cursorRequest = objStore.index('byDate').openCursor(keyRange);
       var returnableItems = [];
-      transaction.oncomplete = function(e) { callback(returnableItems); };
+      transaction.oncomplete = function(e) { callback(_stripAngularHashKeys(returnableItems)); };
       cursorRequest.onsuccess = function(e) {
         var result = e.target.result;
         if (!!result == false) { return; }
@@ -348,22 +348,21 @@ angular.module('offlineApp').service('offlineService', function($http) {
         callback();
         return;
       }
-      function loopArray(array) {
-        _putToIndexedDB(array[x],function(){
-          x++;
-          if(x < array.length) { loopArray(array); }
-          else { callback(); }
-        });
-      };
-      loopArray(array);
-    };
 
-    // Add/Update to IndexedDB. This function returns nothing.
-    function _putToIndexedDB(item, callback) {
-        item.remoteSync = false;
-        var req = _newIDBTransaction().objectStore(view_model.objectStoreName).put(item);
-        req.onsuccess = function(e) { callback(); };
-        req.onerror = function() { console.error(this.error); };
+      var objStore = _newIDBTransaction().objectStore(view_model.objectStoreName);
+
+      function putNext() {
+        if(x < array.length) {
+          objStore.put(array[x]).onsuccess = function() {
+            x++;
+            putNext();
+          };
+        } else {
+          callback();
+        }
+      }
+      putNext();
+
     };
 
     function _newIDBTransaction() {

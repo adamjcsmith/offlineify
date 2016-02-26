@@ -13,6 +13,7 @@ angular.module('offlineApp')
 
     /* Controller observer-pattern function */
     var updateCtrl = function(response) {
+      console.log("Data has reached the controller.");
       $scope.dataModel = offlineService.serviceDB;
       _updateToUI("Update: " + response);
     };

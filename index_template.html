@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="css/semantic.min.css">
     <link href='https://fonts.googleapis.com/css?family=Pacifico' rel='stylesheet' type='text/css'>
     <link rel="icon" type="image/ico" href="icon.ico">
-    <style> .off { opacity: 0.75; } .pacifico { font-family: 'Pacifico', sans-serif; font-weight: 400;}</style>
+    <style> .off { opacity: 0.75; } .pacifico { font-family: 'Pacifico', sans-serif; font-weight: 400;} .ui.card, .ui.cards>.card { width: 271px; }</style>
   </head>
 
   <body ng-app="offlineApp">
@@ -28,26 +28,41 @@
         </div>
       </div>
 
-      <div class="ui centered grid">
+      <div class="ui grid centered container">
 
+        <div class="row"></div>
         <div class="row"></div>
 
         <div class="row">
-          <div class="ui info message">
-            <i class="close icon"></i>
-            <div class="header">Your content will go here.</div>
-            <p></p>
-            <p>Objects are written to IndexedDB automatically. The app will
-              synchronise every ten seconds, checking an API for new data.
-              Alter the parameters in js/services/offlineService.js to your API.</p>
-            <p><strong>Important:</strong> your API must have an <a href="http://www.w3schools.com/jsref/jsref_toisostring.asp">ISO8601 timestamp</a> property in order for Offlinify to work.</p>
-            <p>Note: To make your app truly offline-capable, integrate this with <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Using_the_application_cache">AppCache</a>.</p>
+
+          <div class="twelve wide center aligned column">
+
+            <div class="ui info message">
+              <i class="close icon"></i>
+              <p></p>
+              <div class="header"><h2>Say hello to <span class="pacifico">offline</span>.</h2></div>
+              <p></p>
+
+              <p> Below should show JSON data taken from the offlinify API. Returns
+                  real data on GET requests, and simulated 200 response on POSTs.
+                  The meat of Offlinify is the js/services/offlineService.js file.
+                  Edit the config to match your own API. Note: ISO-8601
+                  (ECMAScript 5) timestamps are required for Offlinify to work.</p>
+              <p> IndexedDB is automatically written to on create/update requests,
+                  unless if IDB is not supported by your browser. Tip: true offline
+                  capability would be made possible by using <a href="https://deve
+                  loper.mozilla.org/en-US/docs/Web/HTML/Using_the_application_cache
+                  ">AppCache</a> to persistently store your static files.</p>
+            </div>
+
           </div>
+
         </div>
 
         <div class="row"></div>
+        <div class="row"></div>
 
-          <div class="fourteen wide center column">
+          <div class="sixteen wide center aligned column">
 
             <div class="ui cards">
               <div ng-class="{'card': true, 'off': !item.fields.clicked}" ng-hide="item.fields.deleted" ng-repeat="item in dataModel">
