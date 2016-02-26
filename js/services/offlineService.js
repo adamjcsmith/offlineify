@@ -4,16 +4,16 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     var view_model = this;
 
-    /* --------------- User Configuration --------------- */
+    /* --------------- Configuration --------------- */
 
     // API Parameters
-    view_model.readAPI = "http://188.166.147.80/getBig?after=";
+    view_model.readAPI = "http://188.166.147.80/get?after=";
     view_model.updateAPI = "http://188.166.147.80/post";
     view_model.createAPI = "http://188.166.147.80/post";
     view_model.primaryKeyProperty = "id";
     view_model.timestampProperty = "timestamp";
 
-    // (Optional) Offlineify Config:
+    // (Optional) Offlinify Config:
     view_model.autoSync = 10000; /* Set to zero for no auto synchronisation */
     view_model.pushSync = false;
     view_model.initialSync = true;
@@ -22,7 +22,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // (Optional) IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB";
-    view_model.indexedDBVersionNumber = 157; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 158; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -36,7 +36,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Public Functions
     view_model.registerController = registerController;
     view_model.generateTimestamp = generateTimestamp;
-    view_model.newSyncThree = newSyncThree;
+    view_model.sync = sync;
     view_model.objectUpdate = objectUpdate;
     view_model.wipeIndexedDB = wipeIndexedDB;
 
@@ -58,7 +58,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         _.set(obj, view_model.primaryKeyProperty, _generateUUID());
       }
       _patchLocal(_stripAngularHashKeys([obj]), function(response) {
-        if(view_model.pushSync) newSyncThree(_notifyObservers);
+        if(view_model.pushSync) sync(_notifyObservers);
       });
      };
 
@@ -70,14 +70,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
         _establishIndexedDB(function() {
           view_model.observerCallbacks.push(ctrlCallback);
           if(!view_model.initialSync) return;
-          view_model.newSyncThree(function(response) {
+          view_model.sync(function(response) {
             ctrlCallback(response);
           });
         });
       } else {
         view_model.observerCallbacks.push(ctrlCallback);
         if(!view_model.initialSync) return;
-        view_model.newSyncThree(function(response) {
+        view_model.sync(function(response) {
           ctrlCallback(response);
         });
        }
@@ -86,7 +86,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- Synchronisation --------------- */
 
     // Restores local state on first sync, or patches local and remote changes:
-    function newSyncThree(callback) {
+    function sync(callback) {
       var startClock = generateTimestamp();
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && view_model.serviceDB.length == 0 ) {
@@ -138,7 +138,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       });
     };
 
-    /* --------------- IndexedDB logic --------------- */
+    /* --------------- Queue + State --------------- */
 
     // Puts IndexedDB store into scope:
     function _restoreLocalState(callback) {
@@ -406,7 +406,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     if(view_model.autoSync > 0 && parseInt(view_model.autoSync) === view_model.autoSync) {
       (function syncLoop() {
         setTimeout(function() {
-          newSyncThree(function(response) {
+          sync(function(response) {
             _notifyObservers(response);
           });
           syncLoop();

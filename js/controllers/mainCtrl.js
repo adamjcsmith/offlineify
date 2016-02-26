@@ -23,7 +23,7 @@ angular.module('offlineApp')
 
     // Force a sync cycle when a user requests it:
     function forceRefresh() {
-      offlineService.newSyncThree(function(response) {
+      offlineService.sync(function(response) {
         updateCtrl(response);
       });
     };
