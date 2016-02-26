@@ -93,7 +93,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         _restoreLocalState( function(localResponse) {
           _patchRemoteChanges(function(remoteResponse) {
             _reduceQueue(function(queueResponse) {
-              callback(localResponse + " " + remoteResponse + " " + queueResponse);
+              callback( {dataSource: remoteResponse, currentQueue: queueResponse} );
               console.log("Initial load took: " + (new Date(generateTimestamp()) - new Date(startClock))/1000 + " sec." );
             });
           });
@@ -101,7 +101,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       } else {
         _patchRemoteChanges(function(remoteResponse) {
           _reduceQueue(function(queueResponse) {
-            callback(remoteResponse + " " + queueResponse);
+            callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
           });
         });
       }
@@ -109,7 +109,11 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Patches remote edits to serviceDB + IndexedDB:
     function _patchRemoteChanges(callback) {
-      if(!view_model.allowRemote) { callback("Remote connection disabled."); return; }
+      if(!view_model.allowRemote) {
+          if(_hasIndexedDB()) callback(-1);
+          else callback(-2);
+          return;
+      }
       _getRemoteRecords(function(response) {
         if(response.status == 200) {
           _patchLocal(response.data, function(localResponse) {
@@ -125,10 +129,10 @@ angular.module('offlineApp').service('offlineService', function($http) {
       view_model.lastChecked = generateTimestamp();
       if( _hasIndexedDB() ) {
         _putArrayToIndexedDB(data, function() {
-          callback("Patched records to ServiceDB & IndexedDB.");
+          callback(1); // Patched to IDB + ServiceDB
         });
       } else {
-        callback("Patched records to ServiceDB only.");
+        callback(0); // Patched to ServiceDB only.
       }
     };
 
@@ -142,7 +146,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Puts IndexedDB store into scope:
     function _restoreLocalState(callback) {
-      if(!_hasIndexedDB()) { callback("IndexedDB not supported."); return; }
+      if(!_hasIndexedDB()) { callback(-1); return; }
       _getIndexedDB(function(idbRecords) {
 
         var sortedElements = _.reverse(_.sortBy(idbRecords, function(o) {
@@ -159,13 +163,13 @@ angular.module('offlineApp').service('offlineService', function($http) {
         }
 
         _patchServiceDB(idbRecords);
-        callback(idbRecords.length + " record(s) taken from IndexedDB.");
+        callback(idbRecords.length);
       });
     };
 
     // Synchronises elements to remote when connection is available:
     function _reduceQueue(callback) {
-      if(!view_model.allowRemote) { callback("As remote is disabled, the queue cannot be cleared."); return; }
+      if(!view_model.allowRemote) { callback(-1); return; }
 
       var createQueue = _.filter(view_model.serviceDB, { "syncState" : 0 });
       var updateQueue = _.filter(view_model.serviceDB, { "syncState" : 2 });
@@ -186,9 +190,9 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
             // Check here for integrity:
             if( queueLength == popLength ) {
-              callback("All queue items have been synchronised.");
+              callback(1); // Success: All queue elements synchronised.
             } else {
-              callback( (queueLength - popLength) + " items could not be synchronised remotely.");
+              callback(0); // Partial success: Some or none were synchronised.
             }
 
           });
