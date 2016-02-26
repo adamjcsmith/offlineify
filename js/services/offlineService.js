@@ -35,7 +35,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Public Functions
     view_model.registerController = registerController;
-    view_model.generateTimestamp = generateTimestamp;
+    view_model._generateTimestamp = _generateTimestamp;
     view_model.sync = sync;
     view_model.objectUpdate = objectUpdate;
     view_model.wipeIndexedDB = wipeIndexedDB;
@@ -48,7 +48,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj) {
-      _.set(obj, view_model.timestampProperty, generateTimestamp());
+      _.set(obj, view_model.timestampProperty, _generateTimestamp());
       obj = _stripAngularHashKeys(obj);
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
@@ -87,14 +87,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
-      var startClock = generateTimestamp();
+      var startClock = _generateTimestamp();
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && view_model.serviceDB.length == 0 ) {
         _restoreLocalState( function(localResponse) {
           _patchRemoteChanges(function(remoteResponse) {
             _reduceQueue(function(queueResponse) {
               callback( {dataSource: remoteResponse, currentQueue: queueResponse} );
-              console.log("Initial load took: " + (new Date(generateTimestamp()) - new Date(startClock))/1000 + " sec." );
+              console.log("Initial load took: " + (new Date(_generateTimestamp()) - new Date(startClock))/1000 + " sec." );
             });
           });
         });
@@ -126,7 +126,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Patches the local storages with a dataset.
     function _patchLocal(data, callback) {
       _patchServiceDB(data);
-      view_model.lastChecked = generateTimestamp();
+      view_model.lastChecked = _generateTimestamp();
       if( _hasIndexedDB() ) {
         _putArrayToIndexedDB(data, function() {
           callback(1); // Patched to IDB + ServiceDB
@@ -180,7 +180,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
           var totalQueue = successfulCreates.concat(successfulUpdates);
           _.forEach(totalQueue, function(value) {
-            _.set(value, view_model.timestampProperty, generateTimestamp());
+            _.set(value, view_model.timestampProperty, _generateTimestamp());
           });
 
           _patchLocal(_resetSyncState(totalQueue), function(response) {
@@ -381,7 +381,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     /* --------------- Utilities --------------- */
 
-    function generateTimestamp() {
+    function _generateTimestamp() {
       var d = new Date();
       return d.toISOString();
     };
