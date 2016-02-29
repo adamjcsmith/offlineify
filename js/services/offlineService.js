@@ -21,8 +21,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.allowRemote = true;
 
     // IndexedDB Config:
-    view_model.indexedDBDatabaseName = "localDB";
-    view_model.indexedDBVersionNumber = 158; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBDatabaseName = "localDB-2";
+    view_model.indexedDBVersionNumber = 177; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
