@@ -21,8 +21,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.allowRemote = true;
 
     // IndexedDB Config:
-    view_model.indexedDBDatabaseName = "localDB";
-    view_model.indexedDBVersionNumber = 158; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBDatabaseName = "localDB-2";
+    view_model.indexedDBVersionNumber = 177; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -66,21 +66,20 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
      // Called by the controller to receive updates (observer pattern)
     function registerController(ctrlCallback) {
-      if(view_model.idb == null) {
-        _establishIndexedDB(function() {
-          view_model.observerCallbacks.push(ctrlCallback);
-          if(!view_model.initialSync) return;
-          view_model.sync(function(response) {
-            ctrlCallback(response);
-          });
-        });
-      } else {
-        view_model.observerCallbacks.push(ctrlCallback);
-        if(!view_model.initialSync) return;
-        view_model.sync(function(response) {
-          ctrlCallback(response);
-        });
-       }
+       ensureIDBReady(function() {
+         view_model.observerCallbacks.push(ctrlCallback);
+         if(!view_model.initialSync) return;
+         view_model.sync(function(response) {
+           ctrlCallback(response);
+         });
+       });
+     };
+
+     function ensureIDBReady(callback) {
+        if(view_model.idb == null)
+          _establishIndexedDB(function() { callback(); });
+        else
+          callback();
      };
 
     /* --------------- Synchronisation --------------- */
@@ -306,13 +305,17 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     function _establishIndexedDB(callback) {
       if(!_hasIndexedDB()) { callback(); /* No browser support for IDB */ return; }
+      console.log("BP0");
       var request = view_model.indexedDB.open(view_model.indexedDBDatabaseName, view_model.indexedDBVersionNumber);
+      console.log("BP0.5");
       request.onupgradeneeded = function(e) {
+        console.log("BP1");
         var db = e.target.result;
         e.target.transaction.onerror = function() { console.error(this.error); };
         if(db.objectStoreNames.contains(view_model.objectStoreName)) {
           db.deleteObjectStore(view_model.objectStoreName);
         }
+        console.log("BP2");
         var offlineItems = db.createObjectStore(view_model.objectStoreName, { keyPath: view_model.primaryKeyProperty, autoIncrement: false } );
         var dateIndex = offlineItems.createIndex("byDate", view_model.timestampProperty, {unique: false});
         view_model.idb = db;
