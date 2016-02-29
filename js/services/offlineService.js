@@ -65,7 +65,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
      /* --------------- Observer Pattern --------------- */
 
      // Called by the controller to receive updates (observer pattern)
-     // Called by the controller to receive updates (observer pattern)
     function registerController(ctrlCallback) {
        ensureIDBReady(function() {
          view_model.observerCallbacks.push(ctrlCallback);
