@@ -65,22 +65,22 @@ angular.module('offlineApp').service('offlineService', function($http) {
      /* --------------- Observer Pattern --------------- */
 
      // Called by the controller to receive updates (observer pattern)
+     // Called by the controller to receive updates (observer pattern)
     function registerController(ctrlCallback) {
-      if(view_model.idb == null) {
-        _establishIndexedDB(function() {
-          view_model.observerCallbacks.push(ctrlCallback);
-          if(!view_model.initialSync) return;
-          view_model.sync(function(response) {
-            ctrlCallback(response);
-          });
-        });
-      } else {
-        view_model.observerCallbacks.push(ctrlCallback);
-        if(!view_model.initialSync) return;
-        view_model.sync(function(response) {
-          ctrlCallback(response);
-        });
-       }
+       ensureIDBReady(function() {
+         view_model.observerCallbacks.push(ctrlCallback);
+         if(!view_model.initialSync) return;
+         view_model.sync(function(response) {
+           ctrlCallback(response);
+         });
+       });
+     };
+
+     function ensureIDBReady(callback) {
+        if(view_model.idb == null)
+          _establishIndexedDB(function() { callback(); });
+        else
+          callback();
      };
 
     /* --------------- Synchronisation --------------- */
