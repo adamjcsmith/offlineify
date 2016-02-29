@@ -305,17 +305,13 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     function _establishIndexedDB(callback) {
       if(!_hasIndexedDB()) { callback(); /* No browser support for IDB */ return; }
-      console.log("BP0");
       var request = view_model.indexedDB.open(view_model.indexedDBDatabaseName, view_model.indexedDBVersionNumber);
-      console.log("BP0.5");
       request.onupgradeneeded = function(e) {
-        console.log("BP1");
         var db = e.target.result;
         e.target.transaction.onerror = function() { console.error(this.error); };
         if(db.objectStoreNames.contains(view_model.objectStoreName)) {
           db.deleteObjectStore(view_model.objectStoreName);
         }
-        console.log("BP2");
         var offlineItems = db.createObjectStore(view_model.objectStoreName, { keyPath: view_model.primaryKeyProperty, autoIncrement: false } );
         var dateIndex = offlineItems.createIndex("byDate", view_model.timestampProperty, {unique: false});
         view_model.idb = db;
