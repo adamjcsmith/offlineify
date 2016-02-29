@@ -13,14 +13,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.primaryKeyProperty = "id";
     view_model.timestampProperty = "timestamp";
 
-    // (Optional) Offlinify Config:
+    // Default Config:
     view_model.autoSync = 10000; /* Set to zero for no auto synchronisation */
     view_model.pushSync = false;
     view_model.initialSync = true;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
     view_model.allowRemote = true;
 
-    // (Optional) IndexedDB Config:
+    // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB";
     view_model.indexedDBVersionNumber = 158; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
@@ -31,7 +31,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.idb = null;
     view_model.serviceDB = []; /* Local image of the data */
     view_model.observerCallbacks = [];
-    view_model.lastChecked = new Date("1970-01-01T00:00:00.413Z").toISOString(); /* Initially the epoch */
+    view_model.lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Public Functions
     view_model.registerController = registerController;

@@ -14,7 +14,7 @@
 
     <div ng-controller="mainCtrl">
 
-      <div class="ui stackable menu">
+      <div class="ui stackable fixed inverted menu">
         <div class="header item"><h3 class="pacifico">Offlinify</h3></div>
         <a class="item" ng-click="forceRefresh()"><i class="ui refresh icon"></i> Force Refresh</a>
         <a class="item" ng-click="wipeIndexedDB()"><i class="ui database icon"></i> Wipe IndexedDB</a>
@@ -50,9 +50,9 @@
                   (ECMAScript 5) timestamps are required for Offlinify to work.</p>
               <p> IndexedDB is automatically written to on create/update requests,
                   unless if IDB is not supported by your browser. Tip: true offline
-                  capability would be made possible by using <a href="https://deve
-                  loper.mozilla.org/en-US/docs/Web/HTML/Using_the_application_cache
-                  ">AppCache</a> to persistently store your static files.</p>
+                  capability would be made possible by using
+                  <a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Using_the_application_cache">AppCache</a>
+                  to persistently store your static files.</p>
             </div>
 
           </div>
@@ -96,7 +96,7 @@
           <div class="sixteen wide center aligned column">
 
             <div class="ui cards">
-              <div ng-class="{'card': true, 'off': !item.fields.clicked}" ng-hide="item.fields.deleted" ng-repeat="item in dataModel">
+              <div ng-class="{'card': true, 'off': !item.fields.clicked}" ng-if="!item.fields.deleted" ng-repeat="item in dataModel">
                 <div class="content">
                   <i class="close link right floated icon" ng-click="item.fields.deleted = true"></i>
                   <div class="header">{{ item.fields.name }}</div>
