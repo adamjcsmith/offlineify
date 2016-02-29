@@ -29,7 +29,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Service Variables
     view_model.idb = null;
-    view_model.serviceDB = []; /* Local image of the data */
+    //view_model.serviceDB = []; /* Local image of the data */
+    view_model.localData = [];
     view_model.observerCallbacks = [];
     view_model.lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
@@ -62,7 +63,41 @@ angular.module('offlineApp').service('offlineService', function($http) {
       });
      };
 
-     /* --------------- Observer Pattern --------------- */
+
+    /* --------------- Observer Pattern --------------- */
+
+    function registerObjectStores(array, callback) {
+
+       // Add a new localData entry.
+
+       // Add to indexedDB.
+
+       _.forEach(array, function(item) {
+
+         var exists = _.filter(view_model.localData, {"storeName" : item.name});
+         if(exists == -1) {callback(); return; }
+
+         item.data = [];
+         view_model.localData.push(item);
+
+       });
+
+    };
+
+
+    function addIDBObjectStore(name, primaryKey, timestamp, callback) {
+
+      // Here check if IDB is null or not, like registerController did.
+      if(view_model.idb == null) {
+        _establishIndexedDB(function() {
+
+        });
+      } else {
+
+       }
+       
+    };
+
 
      // Called by the controller to receive updates (observer pattern)
     function registerController(ctrlCallback) {
