@@ -14,7 +14,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.timestampProperty = "timestamp";
 
     // Default Config:
-    view_model.autoSync = 10000; /* Set to zero for no auto synchronisation */
+    view_model.autoSync = 0; /* Set to zero for no auto synchronisation */
     view_model.pushSync = false;
     view_model.initialSync = true;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
@@ -85,16 +85,19 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
 
+    function checkIDBObjectStore(name, callback) {
+      if(!_IDBSupport()) { callback(); return; }
+      ensureIDBReady(function() {
+        console.log(view_moel.idb.objectStoreNames);
+      });
+    };
+
     function addIDBObjectStore(name, primaryKey, timestamp, callback) {
 
       // Here check if IDB is null or not, like registerController did.
-      if(view_model.idb == null) {
-        _establishIndexedDB(function() {
+      ensureIDBReady(function() {
 
-        });
-      } else {
-
-       }
+      });
 
     };
 
@@ -108,14 +111,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
            ctrlCallback(response);
          });
        });
-     };
+    };
 
-     function ensureIDBReady(callback) {
+    function ensureIDBReady(callback) {
         if(view_model.idb == null)
           _establishIndexedDB(function() { callback(); });
         else
           callback();
-     };
+    };
 
     /* --------------- Synchronisation --------------- */
 
@@ -144,7 +147,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Patches remote edits to serviceDB + IndexedDB:
     function _patchRemoteChanges(callback) {
       if(!view_model.allowRemote) {
-          if(_hasIndexedDB()) callback(-1);
+          if(_IDBSupport()) callback(-1);
           else callback(-2);
           return;
       }
@@ -161,7 +164,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function _patchLocal(data, callback) {
       _patchServiceDB(data);
       view_model.lastChecked = _generateTimestamp();
-      if( _hasIndexedDB() ) {
+      if( _IDBSupport() ) {
         _putArrayToIndexedDB(data, function() {
           callback(1); // Patched to IDB + ServiceDB
         });
@@ -180,7 +183,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Puts IndexedDB store into scope:
     function _restoreLocalState(callback) {
-      if(!_hasIndexedDB()) { callback(-1); return; }
+      if(!_IDBSupport()) { callback(-1); return; }
       _getIndexedDB(function(idbRecords) {
 
         var sortedElements = _.reverse(_.sortBy(idbRecords, function(o) {
@@ -339,7 +342,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- IndexedDB --------------- */
 
     function _establishIndexedDB(callback) {
-      if(!_hasIndexedDB()) { callback(); /* No browser support for IDB */ return; }
+      if(!_IDBSupport()) { callback(); /* No browser support for IDB */ return; }
       var request = view_model.indexedDB.open(view_model.indexedDBDatabaseName, view_model.indexedDBVersionNumber);
       request.onupgradeneeded = function(e) {
         var db = e.target.result;
@@ -358,7 +361,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       request.onerror = function() { console.error(this.error); };
     };
 
-    function _hasIndexedDB() {
+    function _IDBSupport() {
       return !(view_model.indexedDB === undefined || view_model.indexedDB === null );
     };
 
