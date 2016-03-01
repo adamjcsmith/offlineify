@@ -18,8 +18,21 @@ angular.module('offlineApp')
       _updateToUI("Update: Queue Response: " + response.currentQueue + " and Source was: " + response.dataSource);
     };
 
+    offlineService.registerObjectStores([
+      {
+          "name": "testObjectStore2",
+          "primaryKey": "id",
+          "timestamp": "timestamp",
+          "readURL": "testurl.com",
+          "updateURL": "updateurl.com",
+          "createurl": "updateurl.com"
+      }
+    ], function() {
+      offlineService.registerController(updateCtrl);
+    });
+
     // Register this controller with the service:
-    offlineService.registerController(updateCtrl);
+    //offlineService.registerController(updateCtrl);
 
     // Force a sync cycle when a user requests it:
     function forceRefresh() {
