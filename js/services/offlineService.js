@@ -12,17 +12,19 @@ angular.module('offlineApp').service('offlineService', function($http) {
           "name": "cars",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
-          "readURL": "http://testurl.com/",
-          "updateURL": "http://updateurl.com/",
-          "createURL": "http://createurl.com/"
+          "readURL": "http://188.166.147.80/get?after=",
+          "updateURL": "http://188.166.147.80/post",
+          "createURL": "http://188.166.147.80/post",
+          "data": []
       },
       {
           "name": "planes",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
-          "readURL": "http://testurl.com/",
-          "updateURL": "http://updateurl.com/",
-          "createURL": "http://createurl.com/"
+          "readURL": "http://188.166.147.80/getBig?after=",
+          "updateURL": "http://188.166.147.80/post",
+          "createURL": "http://188.166.147.80/post",
+          "data": []
       }
     ];
 
@@ -107,7 +109,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function sync(callback) {
       var startClock = _generateTimestamp();
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
-      if( newLocalRecords.length == 0 && view_model.serviceDB.length == 0 ) {
+      if( newLocalRecords.length == 0 ) {
+        console.log("Branch A");
         _restoreLocalState( function(localResponse) {
           _patchRemoteChanges(function(remoteResponse) {
             _reduceQueue(function(queueResponse) {
@@ -117,6 +120,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           });
         });
       } else {
+        console.log("Branch B");
         _patchRemoteChanges(function(remoteResponse) {
           _reduceQueue(function(queueResponse) {
             callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
@@ -167,6 +171,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
+      console.log("Patch local was called, with store: " + store);
       _patchServiceDB(data, store); // DONE
       view_model.lastChecked = _generateTimestamp();
       if( _IDBSupported() ) {
@@ -220,7 +225,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
         }
 
-        _patchServiceDB(idbRecords);
+        _patchServiceDB(idbRecords, []);
         callback(idbRecords.length);
       });
     };
@@ -238,19 +243,19 @@ angular.module('offlineApp').service('offlineService', function($http) {
           return;
         }
 
-        var createQueue = _.filter(view_model.serviceDB[i].data, { "syncState" : 0 });
-        var updateQueue = _.filter(view_model.serviceDB[i].data, { "syncState" : 2 });
+        var createQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 0 });
+        var updateQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 2 });
 
         // Reduce the queue:
-        _safeArrayPost(createQueue, view_model.serviceDB[i].createURL, function(successfulCreates) {
-          _safeArrayPost(updateQueue, view_model.serviceDB[i].updateURL, function(successfulUpdates) {
+        _safeArrayPost(createQueue, view_model.serviceDB[counter].createURL, function(successfulCreates) {
+          _safeArrayPost(updateQueue, view_model.serviceDB[counter].updateURL, function(successfulUpdates) {
 
             var totalQueue = successfulCreates.concat(successfulUpdates);
             _.forEach(totalQueue, function(value) {
-              _.set(value, view_model.serviceDB[i].timestampProperty, _generateTimestamp());
+              _.set(value, view_model.serviceDB[counter].timestampProperty, _generateTimestamp());
             });
 
-            _patchLocal(_resetSyncState(totalQueue), view_model.serviceDB[i].name, function(response) {
+            _patchLocal(_resetSyncState(totalQueue), view_model.serviceDB[counter].name, function(response) {
 
               var queueLength = updateQueue.length + createQueue.length;
               var popLength = successfulCreates.length + successfulUpdates.length;
@@ -281,12 +286,19 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- ServiceDB Interface --------------- */
 
     function _patchServiceDB(data, store) {
-      var operations = _filterOperations(data, store);
-      _updatesToServiceDB(operations.updateOperations);
-      _pushToServiceDB(operations.createOperations);
+      console.log("For patchServiceDb, the store was: " + store);
+      if(store.length==0) {
+        view_model.serviceDB = data; // Replace the whole of serviceDB.
+      } else {
+        console.log("Called here... ");
+        var operations = _filterOperations(data, store);
+        _updatesToServiceDB(operations.updateOperations, store);
+        _pushToServiceDB(operations.createOperations, store);
+      }
     };
 
     function _pushToServiceDB(array, store) {
+      console.log("_getObjStore(store) returns: " + JSON.stringify(_getObjStore(store)));
       for(var i=0; i<array.length; i++) _getObjStore(store).data.push(array[i]);
     };
 
@@ -317,6 +329,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var createOps = [];
       for(var i=0; i<data.length; i++) {
         var queryJSON = {};
+        console.log("Store was: " + store);
         _.set(queryJSON, _getObjStore(store).primaryKeyProperty, _.get(data[i], _getObjStore(store).primaryKeyProperty));
         var query = _.findIndex(_getObjStore(store).data, queryJSON);
         if( query > -1 ) updateOps.push(data[i]);
