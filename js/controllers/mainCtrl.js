@@ -36,7 +36,7 @@ angular.module('offlineApp')
 
     // For diagnostics, allow wiping of IndexedDB:
     function wipeIndexedDB() {
-      offlineService.wipeIndexedDB(function() {
+      offlineService.wipeIDB(function() {
         forceRefresh();
       });
     };
