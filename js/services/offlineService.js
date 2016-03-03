@@ -34,11 +34,11 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.pushSync = false;
     view_model.initialSync = false;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
-    view_model.allowRemote = false;
+    view_model.allowRemote = true;
 
     // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 215; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 219; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -72,9 +72,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
       }
 
       _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
-      obj = _stripAngularHashKeys(obj);
 
-      console.log("objectUpdate object was: " + JSON.stringify(obj));
+      //console.log("objectUpdate object was: " + JSON.stringify(obj));
 
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
@@ -83,7 +82,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
         obj.syncState = 0;
         _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
       }
-      _patchLocal(obj, store, function(response) {
+      //console.log("Final prepared object was: " + JSON.stringify(obj));
+      _patchLocal([obj], store, function(response) {
         if(view_model.pushSync) sync(_notifyObservers);
       });
      };
@@ -284,6 +284,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           _safeArrayPost(updateQueue, view_model.serviceDB[counter].updateURL, function(successfulUpdates) {
 
             var totalQueue = successfulCreates.concat(successfulUpdates);
+            console.log("the totalQueue was: " + JSON.stringify(totalQueue));
             _.forEach(totalQueue, function(value) {
               _.set(value, view_model.serviceDB[counter].timestampProperty, _generateTimestamp());
             });
@@ -319,14 +320,17 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- ServiceDB Interface --------------- */
 
     function _patchServiceDB(data, store) {
-      console.log("Called here... ");
+      //console.log("Called here... ");
       var operations = _filterOperations(data, store);
       _updatesToServiceDB(operations.updateOperations, store);
       _pushToServiceDB(operations.createOperations, store);
+      //console.log("updateOps: " + JSON.stringify(operations.updateOperations));
+      //console.log("createOps: " + JSON.stringify(operations.createOperations));
     };
 
     function _pushToServiceDB(array, store) {
       //console.log("_getObjStore(store) returns: " + JSON.stringify(_getObjStore(store)));
+      //console.log("for pushToServiceDB the array was: " + JSON.stringify(array));
       for(var i=0; i<array.length; i++) _getObjStore(store).data.push(array[i]);
     };
 
@@ -367,6 +371,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         if( query > -1 ) updateOps.push(data[i]);
         else createOps.push(data[i]);
       }
+      //console.log("From _filterOperations, updateOps:" + updateOps + ", createOps: " + createOps);
       return { updateOperations: updateOps, createOperations: createOps };
     }
 
@@ -419,6 +424,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       if(array.length == 0) { callback([]); return; }
       function loopArray(array) {
         _postRemote(array[x],url,function(response) {
+          console.log("postRemote response was: " + JSON.stringify(response));
           if(response == 200) successfulElements.push(array[x]);
           x++;
           if(x < array.length) { loopArray(array); }
@@ -527,14 +533,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
       return uuid;
     };
 
-    function _stripAngularHashKeys(object) {
+    function _stripAngularHashKey(object) {
       delete object.$$hashKey;
       return object;
     };
 
     function _bulkStripHashKeys(array) {
       for(var i=0; i<array.length; i++) {
-        array[i] = _stripAngularHashKeys(array[i]);
+        array[i] = _stripAngularHashKey(array[i]);
       }
       return array;
     }
