@@ -17,7 +17,7 @@ angular.module('offlineApp')
     var updateCtrl = function(response) {
       console.log("Data has reached the controller.");
       $scope.dataModel = offlineService.serviceDB[0].data;
-      _updateToUI("Update complete.");
+      _updateToUI("Update complete, request took: " + response + "sec.");
     };
 
     // Register with the service:

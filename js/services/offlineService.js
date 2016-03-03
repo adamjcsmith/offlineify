@@ -99,7 +99,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          callback(); // Load IDB records straight into DOM first.
+          callback((new Date(_generateTimestamp()) - new Date(startClock))/1000); // Load IDB records straight into DOM first.
           mergeEditsReduceQueue(startClock, callback);
         });
       } else {
@@ -110,8 +110,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function mergeEditsReduceQueue(startTime, callback) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
-          callback();
-          console.log("Remote lookup took: " + (new Date(_generateTimestamp()) - new Date(startTime))/1000 + " sec." );
+          callback((new Date(_generateTimestamp()) - new Date(startTime))/1000);
         });
       });
     };
