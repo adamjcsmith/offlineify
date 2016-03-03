@@ -38,7 +38,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 194; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 214; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -67,12 +67,14 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
       // Reject update if unknown objectstore is specified:
       if(_getObjStore(store) === undefined) {
-        console.log("This object store does not exist.");
+        //console.log("This object store does not exist.");
         return;
       }
 
       _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
       obj = _stripAngularHashKeys(obj);
+
+      console.log("objectUpdate object was: " + JSON.stringify(obj));
 
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
@@ -81,7 +83,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         obj.syncState = 0;
         _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
       }
-      _patchLocal(_stripAngularHashKeys([obj]), store, function(response) {
+      _patchLocal(_stripAngularHashKeys(obj), store, function(response) {
         if(view_model.pushSync) sync(_notifyObservers);
       });
      };
@@ -112,22 +114,24 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       console.log("newLocalRecords was: " + newLocalRecords);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
-        console.log("Branch A");
         _restoreLocalState( function(localResponse) {
-          console.log("1.Finished restorelocalstate");
+          console.log("A1.Finished restorelocalstate");
           _patchRemoteChanges(function(remoteResponse) {
-            console.log("2.Finished patchRemoteChanges");
+            console.log("A2.Finished patchRemoteChanges");
             _reduceQueue(function(queueResponse) {
-              console.log("1.Finished _reduceQueue");
+              console.log("A3.Finished _reduceQueue");
               callback( {dataSource: remoteResponse, currentQueue: queueResponse} );
               console.log("Initial load took: " + (new Date(_generateTimestamp()) - new Date(startClock))/1000 + " sec." );
+              //console.log("view_model.serviceDB[0] is now: " + JSON.stringify(view_model.serviceDB[0]));
             });
           });
         });
       } else {
         console.log("Branch B");
         _patchRemoteChanges(function(remoteResponse) {
+          console.log("B1. PatchRemoteChanges finshed.");
           _reduceQueue(function(queueResponse) {
+            console.log("B2. ReduceQueue Finished");
             callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
           });
         });
@@ -171,8 +175,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
         }
 
         _getRemoteRecords(view_model.serviceDB[counter].readURL, function(response) {
-          console.log("In patchRemoteChanges, returned data for counter: " + counter + " was " + JSON.stringify(response));
-          console.log("view_model.lastChecked is now: " + view_model.lastChecked);
+          //console.log("In patchRemoteChanges, returned data for counter: " + counter + " was " + JSON.stringify(response));
+          //console.log("view_model.lastChecked is now: " + view_model.lastChecked);
           if(response.status == 200) {
             _patchLocal(response.data, view_model.serviceDB[counter].name, function(localResponse) {
               counter++;
@@ -190,7 +194,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
-      console.log("Patch local was called, with store: " + store);
+      //console.log("Patch local was called, with store: " + store);
       _patchServiceDB(data, store); // DONE
       //view_model.lastChecked = _generateTimestamp();
       if( _IDBSupported() ) {
@@ -249,8 +253,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
         // Only for TEMPORARY USE!!!!!!!!!!!!!!
         if(idbRecords.length > 0) view_model.serviceDB = idbRecords;
 
-        console.log("indexedDB is currently: " + JSON.stringify(idbRecords));
-        console.log("serviceDB is now: " + JSON.stringify(view_model.serviceDB));
+        //console.log("indexedDB is currently: " + JSON.stringify(idbRecords));
+        //console.log("serviceDB is now: " + JSON.stringify(view_model.serviceDB));
 
         callback(idbRecords.length);
       });
@@ -271,6 +275,9 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
         var createQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 0 });
         var updateQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 2 });
+
+        console.log("createQueue was: " + JSON.stringify(createQueue));
+        console.log("updateQueue was: " + JSON.stringify(updateQueue));
 
         // Reduce the queue:
         _safeArrayPost(createQueue, view_model.serviceDB[counter].createURL, function(successfulCreates) {
@@ -319,7 +326,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
     function _pushToServiceDB(array, store) {
-      console.log("_getObjStore(store) returns: " + JSON.stringify(_getObjStore(store)));
+      //console.log("_getObjStore(store) returns: " + JSON.stringify(_getObjStore(store)));
       for(var i=0; i<array.length; i++) _getObjStore(store).data.push(array[i]);
     };
 
@@ -333,9 +340,13 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
     function _getLocalRecords(sinceTime) {
+      //console.log("getLocalRecords sees this serviceDB: " + JSON.stringify(view_model.serviceDB));
       var totalRecords = [];
       for(var i=0; i<view_model.serviceDB.length; i++) {
         totalRecords = totalRecords.concat( _.filter(view_model.serviceDB[i].data, function(o) {
+          //console.log("i was: " + i + ", timestampProperty was: " + view_model.serviceDB[i].timestampProperty);
+          //console.log("This entire object is: " + JSON.stringify(o));
+          //console.log("The timestamp property was: " + _.get(o, view_model.serviceDB[i].timestampProperty));
           return new Date(_.get(o, view_model.serviceDB[i].timestampProperty)).toISOString() > sinceTime;
         }));
       }
@@ -350,7 +361,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var createOps = [];
       for(var i=0; i<data.length; i++) {
         var queryJSON = {};
-        console.log("Store was: " + store);
+        //console.log("Store was: " + store);
         _.set(queryJSON, _getObjStore(store).primaryKeyProperty, _.get(data[i], _getObjStore(store).primaryKeyProperty));
         var query = _.findIndex(_getObjStore(store).data, queryJSON);
         if( query > -1 ) updateOps.push(data[i]);
@@ -452,7 +463,9 @@ angular.module('offlineApp').service('offlineService', function($http) {
       //var cursorRequest = objStore.index('byDate').openCursor(keyRange);
       var cursorRequest = objStore.openCursor(keyRange);
       var returnableItems = [];
-      transaction.oncomplete = function(e) { callback(_stripAngularHashKeys(returnableItems)); };
+      transaction.oncomplete = function(e) {
+        callback(_bulkStripHashKeys(returnableItems));
+      };
       cursorRequest.onsuccess = function(e) {
         var result = e.target.result;
         if (!!result == false) { return; }
@@ -477,25 +490,32 @@ angular.module('offlineApp').service('offlineService', function($http) {
         console.log("putNext has been called");
         if(x < array.length) {
 
+          // Strip angular hash keys:
+          var cleanedData = _bulkStripHashKeys(_getObjStore(store).data);
+          console.log(_getObjStore(store) + " in putArrayToIndexedDB is now: " + JSON.stringify(_getObjStore(store)));
+
+          objStore.put(_getObjStore(store)).onsuccess = function() {
+            callback();
+            return;
+          }
+
+          // This function needs to be updated, semantically no longer
+          // Should take an array, but be a periodic push from SDB -> IDB
+
+          /*
           // Highly experimental!!!!
           var objectStoreRequest = objStore.get(store);
           objectStoreRequest.onsuccess = function(e) {
-            console.log("Found the required store: " + store);
-
+            //console.log("Found the required store: " + store);
             if(e.target.result === undefined) {
               // Doesn't exist, so safely add the entire thing:
               objStore.put(_getObjStore(store)).onsuccess = function() {
                   callback();
                   return;
               };
-
             } else {
-              // Already exists, so append:
-
-
-            }
-
-          };
+              // Already exists, so append: }
+          }; */
 
           /*
           objStore.put(_getObjStore(store)).onsuccess = function() {
@@ -503,6 +523,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
             putNext();
           };
           */
+
+
         } else {
           callback();
         }
@@ -542,10 +564,17 @@ angular.module('offlineApp').service('offlineService', function($http) {
       return uuid;
     };
 
-    function _stripAngularHashKeys(array) {
-      for(var i=0; i<array.length; i++) delete array[i].$$hashKey;
-      return array;
+    function _stripAngularHashKeys(object) {
+      delete object.$$hashKey;
+      return object;
     };
+
+    function _bulkStripHashKeys(array) {
+      for(var i=0; i<array.length; i++) {
+        array[i] = _stripAngularHashKeys(array[i]);
+      }
+      return array;
+    }
 
     /* --------------- Sync Loop -------------- */
 
