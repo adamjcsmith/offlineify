@@ -29,9 +29,9 @@ angular.module('offlineApp').service('offlineService', function($http) {
     ];
 
     // Default Config:
-    view_model.autoSync = 0; /* Set to zero for no auto synchronisation */
+    view_model.autoSync = 4000; /* Set to zero for no auto synchronisation */
     view_model.pushSync = false;
-    view_model.initialSync = false;
+    view_model.initialSync = true;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
     view_model.allowRemote = true;
 
@@ -90,6 +90,12 @@ angular.module('offlineApp').service('offlineService', function($http) {
          });
        });
      };
+
+    function _notifyObservers(status) {
+      angular.forEach(view_model.observerCallbacks, function(callback){
+        callback(status);
+      });
+    };
 
     /* --------------- Synchronisation --------------- */
 
