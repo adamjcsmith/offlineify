@@ -80,7 +80,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     /* --------------- Observer Pattern --------------- */
 
-     // Called by the controller to receive updates (observer pattern)
+     // Called by a controller to be notified of data changes:
     function subscribe(ctrlCallback) {
        _establishIDB(function() {
          view_model.observerCallbacks.push(ctrlCallback);
@@ -105,20 +105,21 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          _patchRemoteChanges(function(remoteResponse) {
-            _reduceQueue(function(queueResponse) {
-              callback( {dataSource: remoteResponse, currentQueue: queueResponse} );
-              console.log("Initial load took: " + (new Date(_generateTimestamp()) - new Date(startClock))/1000 + " sec." );
-            });
-          });
+          callback( { } );
+          mergeEditsReduceQueue(startClock, callback);
         });
       } else {
-        _patchRemoteChanges(function(remoteResponse) {
-          _reduceQueue(function(queueResponse) {
-            callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
-          });
-        });
+        mergeEditsReduceQueue(startClock, callback);
       }
+    };
+
+    function mergeEditsReduceQueue(startTime, callback) {
+      _patchRemoteChanges(function(remoteResponse) {
+        _reduceQueue(function(queueResponse) {
+          callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
+          console.log("Remote lookup took: " + (new Date(_generateTimestamp()) - new Date(startTime))/1000 + " sec." );
+        });
+      });
     };
 
     // Patches remote edits to serviceDB + IndexedDB:
@@ -273,7 +274,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
       else return false;
     };
 
-    // Return an object store instance:
     function _getObjStore(name) {
       return _.find( view_model.serviceDB, {"name": name} );
     };
@@ -386,7 +386,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
       return !( view_model.indexedDB === undefined || view_model.indexedDB === null );
     };
 
-    // Set up IndexedDB:
     function _establishIDB(callback) {
       // End request if IDB is already set-up or is not supported:
       if(!_IDBSupported() || view_model.idb) { callback(); return; }
