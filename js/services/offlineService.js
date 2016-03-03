@@ -34,11 +34,11 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.pushSync = false;
     view_model.initialSync = false;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
-    view_model.allowRemote = true;
+    view_model.allowRemote = false;
 
     // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 214; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 215; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -83,7 +83,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         obj.syncState = 0;
         _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
       }
-      _patchLocal(_stripAngularHashKeys(obj), store, function(response) {
+      _patchLocal(obj, store, function(response) {
         if(view_model.pushSync) sync(_notifyObservers);
       });
      };
@@ -198,7 +198,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       _patchServiceDB(data, store); // DONE
       //view_model.lastChecked = _generateTimestamp();
       if( _IDBSupported() ) {
-        _putArrayToIndexedDB(data, store, function() {
+        _putArrayToIndexedDB(store, function() {
           callback(1); // Patched to IDB + ServiceDB
         });
       } else {
@@ -476,60 +476,23 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
     // Apply array of edited objects to IndexedDB.
-    function _putArrayToIndexedDB(array, store, callback) {
-      var x = 0;
-      if(array.length == 0) {
-        callback();
-        return;
-      }
+    function _putArrayToIndexedDB(store, callback) {
+
+      // Reject request if no store by that name exists:
+      if(_getObjStore(store) === undefined) { callback(); return; }
 
       // This is the IndexedDB object store, do not edit:
       var objStore = _newIDBTransaction().objectStore(view_model.objectStoreName);
 
-      function putNext() {
-        console.log("putNext has been called");
-        if(x < array.length) {
+      // Strip angular hash keys:
+      var cleanedData = _bulkStripHashKeys(_getObjStore(store).data);
+      //console.log(_getObjStore(store) + " in putArrayToIndexedDB is now: " + JSON.stringify(_getObjStore(store)));
+      //console.log("Writing this to the IndexedDB: " + JSON.stringify(_getObjStore(store)));
 
-          // Strip angular hash keys:
-          var cleanedData = _bulkStripHashKeys(_getObjStore(store).data);
-          console.log(_getObjStore(store) + " in putArrayToIndexedDB is now: " + JSON.stringify(_getObjStore(store)));
-
-          objStore.put(_getObjStore(store)).onsuccess = function() {
-            callback();
-            return;
-          }
-
-          // This function needs to be updated, semantically no longer
-          // Should take an array, but be a periodic push from SDB -> IDB
-
-          /*
-          // Highly experimental!!!!
-          var objectStoreRequest = objStore.get(store);
-          objectStoreRequest.onsuccess = function(e) {
-            //console.log("Found the required store: " + store);
-            if(e.target.result === undefined) {
-              // Doesn't exist, so safely add the entire thing:
-              objStore.put(_getObjStore(store)).onsuccess = function() {
-                  callback();
-                  return;
-              };
-            } else {
-              // Already exists, so append: }
-          }; */
-
-          /*
-          objStore.put(_getObjStore(store)).onsuccess = function() {
-            x++;
-            putNext();
-          };
-          */
-
-
-        } else {
-          callback();
-        }
+      objStore.put(_getObjStore(store)).onsuccess = function() {
+        callback();
+        return;
       }
-      putNext();
 
     };
 
