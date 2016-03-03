@@ -89,13 +89,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
            ctrlCallback(response);
          });
        });
-    };
-
-    function _notifyObservers(status) {
-      angular.forEach(view_model.observerCallbacks, function(callback){
-        callback(status);
-      });
-    };
+     };
 
     /* --------------- Synchronisation --------------- */
 
