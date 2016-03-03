@@ -8,6 +8,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Multistore:
     view_model.serviceDB = [
+
       {
           "name": "cars",
           "primaryKeyProperty": "id",
@@ -17,7 +18,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           "createURL": "http://188.166.147.80/post",
           "data": []
       },
-      {
+       {
           "name": "planes",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
@@ -37,7 +38,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 181; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 194; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -109,11 +110,15 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function sync(callback) {
       var startClock = _generateTimestamp();
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
-      if( newLocalRecords.length == 0 ) {
+      console.log("newLocalRecords was: " + newLocalRecords);
+      if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         console.log("Branch A");
         _restoreLocalState( function(localResponse) {
+          console.log("1.Finished restorelocalstate");
           _patchRemoteChanges(function(remoteResponse) {
+            console.log("2.Finished patchRemoteChanges");
             _reduceQueue(function(queueResponse) {
+              console.log("1.Finished _reduceQueue");
               callback( {dataSource: remoteResponse, currentQueue: queueResponse} );
               console.log("Initial load took: " + (new Date(_generateTimestamp()) - new Date(startClock))/1000 + " sec." );
             });
@@ -129,6 +134,17 @@ angular.module('offlineApp').service('offlineService', function($http) {
       }
     };
 
+
+    function checkServiceDBEmpty() {
+      var totalRecords = [];
+      for(var i=0; i<view_model.serviceDB.length; i++) {
+        totalRecords = totalRecords.concat(view_model.serviceDB[i].data);
+      }
+      if(totalRecords.length == 0) return true;
+      else return false;
+    };
+
+
     // Patches remote edits to serviceDB + IndexedDB:
     function _patchRemoteChanges(callback) {
 
@@ -139,31 +155,34 @@ angular.module('offlineApp').service('offlineService', function($http) {
           return;
       }
 
-      // Then populate each object store separately:
+      // If there's no data models end request:
+      if(view_model.serviceDB.length == 0) {
+        callback(-2); // Correct code?
+        return;
+      }
+
       var counter = 0;
 
-      if(view_model.serviceDB.length == 0) callback(-2); // Correct code?
-
       function doFunction() {
+        if(view_model.serviceDB.length == counter) {
+          view_model.lastChecked = _generateTimestamp();
+          callback(1);
+          return;
+        }
 
         _getRemoteRecords(view_model.serviceDB[counter].readURL, function(response) {
+          console.log("In patchRemoteChanges, returned data for counter: " + counter + " was " + JSON.stringify(response));
+          console.log("view_model.lastChecked is now: " + view_model.lastChecked);
           if(response.status == 200) {
             _patchLocal(response.data, view_model.serviceDB[counter].name, function(localResponse) {
-
               counter++;
-              if(counter < view_model.serviceDB.length) doFunction();
-              else callback(localResponse); // This is technically incorrect!
-
+              doFunction();
             });
           } else {
-
             counter++;
-            if(counter < view_model.serviceDB.length) doFunction();
-            else callback("error");
-
+            doFunction();
            }
         });
-
       };
       doFunction();
 
@@ -173,7 +192,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function _patchLocal(data, store, callback) {
       console.log("Patch local was called, with store: " + store);
       _patchServiceDB(data, store); // DONE
-      view_model.lastChecked = _generateTimestamp();
+      //view_model.lastChecked = _generateTimestamp();
       if( _IDBSupported() ) {
         _putArrayToIndexedDB(data, store, function() {
           callback(1); // Patched to IDB + ServiceDB
@@ -198,6 +217,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
         // Collect the entire queue (?)
         var allElements = [];
+
+        //console.log("idbRecords is: " + JSON.stringify(idbRecords));
 
         // For each first level (object store) element:
         for(var i=0; i<idbRecords.length; i++) {
@@ -225,7 +246,12 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
         }
 
-        _patchServiceDB(idbRecords, []);
+        // Only for TEMPORARY USE!!!!!!!!!!!!!!
+        if(idbRecords.length > 0) view_model.serviceDB = idbRecords;
+
+        console.log("indexedDB is currently: " + JSON.stringify(idbRecords));
+        console.log("serviceDB is now: " + JSON.stringify(view_model.serviceDB));
+
         callback(idbRecords.length);
       });
     };
@@ -286,15 +312,10 @@ angular.module('offlineApp').service('offlineService', function($http) {
     /* --------------- ServiceDB Interface --------------- */
 
     function _patchServiceDB(data, store) {
-      console.log("For patchServiceDb, the store was: " + store);
-      if(store.length==0) {
-        view_model.serviceDB = data; // Replace the whole of serviceDB.
-      } else {
-        console.log("Called here... ");
-        var operations = _filterOperations(data, store);
-        _updatesToServiceDB(operations.updateOperations, store);
-        _pushToServiceDB(operations.createOperations, store);
-      }
+      console.log("Called here... ");
+      var operations = _filterOperations(data, store);
+      _updatesToServiceDB(operations.updateOperations, store);
+      _pushToServiceDB(operations.createOperations, store);
     };
 
     function _pushToServiceDB(array, store) {
@@ -453,13 +474,35 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var objStore = _newIDBTransaction().objectStore(view_model.objectStoreName);
 
       function putNext() {
+        console.log("putNext has been called");
         if(x < array.length) {
 
           // Highly experimental!!!!
+          var objectStoreRequest = objStore.get(store);
+          objectStoreRequest.onsuccess = function(e) {
+            console.log("Found the required store: " + store);
+
+            if(e.target.result === undefined) {
+              // Doesn't exist, so safely add the entire thing:
+              objStore.put(_getObjStore(store)).onsuccess = function() {
+                  callback();
+                  return;
+              };
+
+            } else {
+              // Already exists, so append:
+
+
+            }
+
+          };
+
+          /*
           objStore.put(_getObjStore(store)).onsuccess = function() {
             x++;
             putNext();
           };
+          */
         } else {
           callback();
         }
