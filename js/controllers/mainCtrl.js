@@ -11,15 +11,21 @@ angular.module('offlineApp')
     $scope.objectUpdate = offlineService.objectUpdate;
     $scope.wipeIndexedDB = wipeIndexedDB;
 
+    $scope.switchDataSource = switchDataSource;
+
     /* Controller observer-pattern function */
     var updateCtrl = function(response) {
       console.log("Data has reached the controller.");
-      $scope.dataModel = offlineService.serviceDB;
-      _updateToUI("Update: Queue Response: " + response.currentQueue + " and Source was: " + response.dataSource);
+      $scope.dataModel = offlineService.serviceDB[0].data;
+      _updateToUI("Update complete.");
     };
 
-    // Register this controller with the service:
-    offlineService.registerController(updateCtrl);
+    // Register with the service:
+    offlineService.subscribe(updateCtrl);
+
+    function switchDataSource() {
+      $scope.dataModel = offlineService.serviceDB[1].data;
+    };
 
     // Force a sync cycle when a user requests it:
     function forceRefresh() {
@@ -30,7 +36,7 @@ angular.module('offlineApp')
 
     // For diagnostics, allow wiping of IndexedDB:
     function wipeIndexedDB() {
-      offlineService.wipeIndexedDB(function() {
+      offlineService.wipeIDB(function() {
         forceRefresh();
       });
     };
