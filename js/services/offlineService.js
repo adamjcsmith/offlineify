@@ -105,7 +105,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          callback( { } );
+          callback(); // Load IDB records straight into DOM first.
           mergeEditsReduceQueue(startClock, callback);
         });
       } else {
@@ -116,7 +116,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
     function mergeEditsReduceQueue(startTime, callback) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
-          callback( { dataSource: remoteResponse, currentQueue: queueResponse } );
+          callback();
           console.log("Remote lookup took: " + (new Date(_generateTimestamp()) - new Date(startTime))/1000 + " sec." );
         });
       });
@@ -128,12 +128,12 @@ angular.module('offlineApp').service('offlineService', function($http) {
       // Reject request if remote is disabled:
       if(!view_model.allowRemote) {
           if(_IDBSupported()) callback(-1);
-          else callback(-2);
+          else callback(-1);
           return;
       }
 
       // If there's no data models end request:
-      if(view_model.serviceDB.length == 0) { callback(-2); return; }
+      if(view_model.serviceDB.length == 0) { callback(-1); return; }
 
       var counter = 0;
 
@@ -209,7 +209,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
         if(idbRecords.length > 0) view_model.serviceDB = idbRecords;
 
-        callback(idbRecords.length);
+        callback(1);
       });
     };
 
