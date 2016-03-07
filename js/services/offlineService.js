@@ -127,7 +127,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
           callback((new Date(_generateTimestamp()) - new Date(startTime))/1000);
-          //console.log("serviceDB is now: " + JSON.stringify(view_model.serviceDB));
         });
       });
     };
@@ -358,24 +357,18 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
     function _getRemoteRecords(store, callback) {
-      console.log("in _getRemoteRecords, store was: " + store);
-      console.log("in _getRemoteRecords, readURL was: " + _getObjStore(store).readURL);
-      console.log("in _getRemoteRecords, dataPrefix was: " + _getObjStore(store).dataPrefix);
       $http({
           method: 'GET',
           url: _getObjStore(store).readURL + view_model.lastChecked
         })
         .then(
           function successCallback(response) {
-            //console.log("response was: " + JSON.stringify(response.data));
 
             if(response.data != [] ) {
-              console.log("got into branch A");
 
               // If the data is prefixed, get from the prefix instead:
               if(_getObjStore(store).dataPrefix !== undefined) {
                 callback({data: _resetSyncState(_.get(response.data, _getObjStore(store).dataPrefix)), status: 200});
-                //conosle.log("response.data is now: " + response.data);
               } else {
                 callback({data: _resetSyncState(response.data), status: 200});
               }
