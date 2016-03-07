@@ -9,6 +9,16 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Multistore:
     view_model.serviceDB = [
       {
+        "name": "gravestone",
+        "dataPrefix": "features",
+        "primaryKeyProperty": "id",
+        "timestampProperty": "properties.time_updated",
+        "readURL": "http://188.166.147.80/getBGMS?after=",
+        "updateURL": "http://188.166.147.80/post",
+        "createURL": "http://188.166.147.80/post",
+        "data": []
+      },
+      {
           "name": "cars",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
@@ -16,7 +26,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           "updateURL": "http://188.166.147.80/post",
           "createURL": "http://188.166.147.80/post",
           "data": []
-      },
+      }, /*
        {
           "name": "planes",
           "primaryKeyProperty": "id",
@@ -25,7 +35,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           "updateURL": "http://188.166.147.80/post",
           "createURL": "http://188.166.147.80/post",
           "data": []
-      }
+      } */
     ];
 
     // Default Config:
@@ -37,7 +47,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // IndexedDB Config:
     view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 221; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBVersionNumber = 234; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -117,6 +127,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
           callback((new Date(_generateTimestamp()) - new Date(startTime))/1000);
+          //console.log("serviceDB is now: " + JSON.stringify(view_model.serviceDB));
         });
       });
     };
@@ -143,7 +154,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
           return;
         }
 
-        _getRemoteRecords(view_model.serviceDB[counter].readURL, function(response) {
+        _getRemoteRecords(view_model.serviceDB[counter].name, function(response) {
           if(response.status == 200) {
             _patchLocal(response.data, view_model.serviceDB[counter].name, function(localResponse) {
               counter++;
@@ -346,17 +357,32 @@ angular.module('offlineApp').service('offlineService', function($http) {
         });
     };
 
-    function _getRemoteRecords(readURL, callback) {
+    function _getRemoteRecords(store, callback) {
+      console.log("in _getRemoteRecords, store was: " + store);
+      console.log("in _getRemoteRecords, readURL was: " + _getObjStore(store).readURL);
+      console.log("in _getRemoteRecords, dataPrefix was: " + _getObjStore(store).dataPrefix);
       $http({
           method: 'GET',
-          url: readURL + view_model.lastChecked
+          url: _getObjStore(store).readURL + view_model.lastChecked
         })
         .then(
           function successCallback(response) {
-            if(response.data.length > 0)
-              callback({data: _resetSyncState(response.data), status: 200});
-            else
+            //console.log("response was: " + JSON.stringify(response.data));
+
+            if(response.data != [] ) {
+              console.log("got into branch A");
+
+              // If the data is prefixed, get from the prefix instead:
+              if(_getObjStore(store).dataPrefix !== undefined) {
+                callback({data: _resetSyncState(_.get(response.data, _getObjStore(store).dataPrefix)), status: 200});
+                //conosle.log("response.data is now: " + response.data);
+              } else {
+                callback({data: _resetSyncState(response.data), status: 200});
+              }
+            }
+            else {
               callback({data: [], status: 200});
+            }
 
         }, function errorCallback(response) {
             callback({data: [], status: response.status});
