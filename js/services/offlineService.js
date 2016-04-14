@@ -39,15 +39,20 @@ angular.module('offlineApp').service('offlineService', function($http) {
     ];
 
     // Default Config:
-    view_model.autoSync = 4000; /* Set to zero for no auto synchronisation */
-    view_model.pushSync = false;
+    view_model.autoSync = 0; /* Set to zero for no auto synchronisation */
+    view_model.pushSync = true;
     view_model.initialSync = true;
     view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
     view_model.allowRemote = true;
 
+    // Error Config (Response Codes):
+    view_model.retryOnResponseCodes = [0,401,500,502]; /* Keep item (optimistically) on queue */
+    view_model.replaceOnResponseCodes = [400,403,404]; /* Delete item from queue, try to replace */
+    view_model.maxRetry = 3; /* Try synchronising retry operations this many times */
+
     // IndexedDB Config:
-    view_model.indexedDBDatabaseName = "localDB-multi1";
-    view_model.indexedDBVersionNumber = 234; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBDatabaseName = "atlanticGeomatic-IDB";
+    view_model.indexedDBVersionNumber = 16; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -62,20 +67,22 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.sync = sync;
     view_model.objectUpdate = objectUpdate;
     view_model.wipeIDB = wipeIDB;
+    view_model.wrapData = wrapData;
+
+    // Asynchronous handling
+    view_model.syncInProgress = false;
+    view_model.callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
     view_model.indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!view_model.allowIndexedDB) view_model.indexedDB = null;
 
-    /* --------------- Create & Update --------------- */
+    /* --------------- Create/Update and Retrieve --------------- */
 
     // Filters create or update ops by queue state:
-    function objectUpdate(obj, store) {
-
+    function objectUpdate(obj, store, successCallback, errorCallback) {
       if(_getObjStore(store) === undefined) return;
-
       _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
-
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
       } else {
@@ -83,9 +90,31 @@ angular.module('offlineApp').service('offlineService', function($http) {
         obj.syncState = 0;
         _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
       }
+      obj.successCallback = successCallback;
+      obj.errorCallback = errorCallback;
       _patchLocal([obj], store, function(response) {
         if(view_model.pushSync) sync(_notifyObservers);
       });
+    };
+
+    // Wraps up the data and queues the callback when required:
+    function wrapData(store, callback) {
+      console.log("Wrap data called");
+      if(_getObjStore(store) === undefined) return {};
+
+      var deferredFunction = function() {
+        var originalWrapper = _getObjStore(store).originalWrapper;
+        var currentData = _getObjStore(store).data;
+        _.set(originalWrapper, _getObjStore(store).dataPrefix, currentData);
+        callback(originalWrapper);
+      }
+
+      if(view_model.syncInProgress) {
+        view_model.callbackWhenSyncFinished.push({"callback": deferredFunction});
+      } else {
+        deferredFunction(); // call immediately.
+      }
+
     };
 
     /* --------------- Observer Pattern --------------- */
@@ -111,6 +140,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
+      console.log("Sync started.");
+      view_model.syncInProgress = true;
       var startClock = _generateTimestamp();
       var newLocalRecords = _getLocalRecords(view_model.lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
@@ -127,8 +158,21 @@ angular.module('offlineApp').service('offlineService', function($http) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
           callback((new Date(_generateTimestamp()) - new Date(startTime))/1000);
+          syncFinished();
         });
       });
+    };
+
+    function syncFinished() {
+      console.log("Sync finished.");
+      // Call each of the callbacks in turn.
+      // Set view_model.syncInProgress back to false!
+      console.log("callback queue length was: " + view_model.callbackWhenSyncFinished.length);
+      _.forEach(view_model.callbackWhenSyncFinished, function(item) {
+        item.callback(); // experimental
+      });
+      view_model.callbackWhenSyncFinished = [];
+      view_model.syncInProgress = false;
     };
 
     // Patches remote edits to serviceDB + IndexedDB:
@@ -194,6 +238,7 @@ angular.module('offlineApp').service('offlineService', function($http) {
         for(var i=0; i<idbRecords.length; i++) {
 
           // Sort by newest date:
+          console.log("Attempting to get: " + idbRecords[i].name);
           var sortedElements = _.reverse(_.sortBy(idbRecords[i].data, function(o) {
             return new Date(_.get(o, idbRecords[i].timestampProperty)).toISOString();
           }));
@@ -230,46 +275,85 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
       function reduceObjectStore() {
 
-        if(counter == view_model.serviceDB.length) {
-          callback(1);
-          return;
-        }
+        // If queue is empty then return:
+        if(counter == view_model.serviceDB.length) { callback(1); return; }
 
+        // Sort into create and update queues:
         var createQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 0 });
         var updateQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 2 });
 
         // Reduce the queue:
-        _safeArrayPost(createQueue, view_model.serviceDB[counter].createURL, function(successfulCreates) {
-          _safeArrayPost(updateQueue, view_model.serviceDB[counter].updateURL, function(successfulUpdates) {
+        _safeArrayPost(createQueue, view_model.serviceDB[counter].createURL, function(createResponse) {
+          _safeArrayPost(updateQueue, view_model.serviceDB[counter].updateURL, function(updateResponse) {
 
-            var totalQueue = successfulCreates.concat(successfulUpdates);
-            _.forEach(totalQueue, function(value) {
+            var itemsToPatch = [];
+
+            // Items to retry later:
+            var retryCreates = createResponse.toRetry;
+            var retryUpdates = updateResponse.toRetry;
+            var itemsToRetry = retryCreates.concat(retryUpdates);
+            var retryProcessed = _retryQueue(itemsToRetry);
+            itemsToPatch = itemsToPatch.concat(retryProcessed.survived);
+
+            // Items to pop from the queue:
+            var popCreates = createResponse.toPop;
+            var popUpdates = updateResponse.toPop;
+            var itemsToPop = popCreates.concat(popUpdates);
+            _.forEach(itemsToPop, function(value) {
               _.set(value, view_model.serviceDB[counter].timestampProperty, _generateTimestamp());
             });
+            itemsToPatch = itemsToPatch.concat(_resetSyncState(itemsToPop));
 
-            _patchLocal(_resetSyncState(totalQueue), view_model.serviceDB[counter].name, function(response) {
-
-              var queueLength = updateQueue.length + createQueue.length;
-              var popLength = successfulCreates.length + successfulUpdates.length;
-
-              // Check here for integrity:
-              if( queueLength == popLength ) {
-                // Success - all queue elements synchronised.
-                counter++;
-                reduceObjectStore();
-              } else {
-                // Partial success - some or none were synchronised.
-                counter++;
-                reduceObjectStore();
-              }
-
+            // Items to replace now:
+            var replaceCreates = createResponse.toReplace;
+            var replaceUpdates = updateResponse.toReplace;
+            var itemsToReplace = replaceCreates.concat(replaceUpdates);
+            itemsToReplace = itemsToReplace.concat(retryProcessed.toReplace);
+            _.forEach(retryProcessed.toReplace, function(value) {
+              if(value.errorCallback) value.errorCallback(0);
             });
+            itemsToPatch = itemsToPatch.concat(_replaceQueue(view_model.serviceDB[counter].name, itemsToReplace));
+
+            _patchLocal(itemsToPatch, view_model.serviceDB[counter].name, function(response) {
+              counter++;
+              reduceObjectStore();
+            });
+
           });
         });
 
       }
 
       reduceObjectStore();
+    };
+
+    function _retryQueue(elementsToRetry) {
+      var survived = [];
+      var toReplace = [];
+      _.forEach(elementsToRetry, function(item) {
+
+        // Set or increment a try:
+        if(item.syncAttempts === undefined) item.syncAttempts = 1;
+        else item.syncAttempts = item.syncAttempts + 1;
+
+        // Deal with items that have too many tries:
+        if(item.syncAttempts > view_model.maxRetry) toReplace.push(item);
+        else survived.push(item);
+
+      });
+      return({"survived": survived, "toReplace": toReplace});
+    };
+
+    function _replaceQueue(store, elementsToReplace) {
+      var counter = 0;
+      var timestampProp = _getObjStore(store).timestampProperty;
+
+      // Set each element to the epoch to force it to be replaced:
+      _.forEach(elementsToReplace, function(item) {
+        _.set(item, timestampProp, "1971-01-01T00:00:00.000Z");
+      });
+
+      return elementsToReplace;
     };
 
     /* --------------- ServiceDB Interface --------------- */
@@ -350,9 +434,9 @@ angular.module('offlineApp').service('offlineService', function($http) {
       })
       .then(
         function successCallback(response) {
-          callback(response.status); // return response code.
+          callback(response); // return response code.
         }, function errorCallback(response) {
-          callback(response.status);
+          callback(response);
         });
     };
 
@@ -368,7 +452,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
               // If the data is prefixed, get from the prefix instead:
               if(_getObjStore(store).dataPrefix !== undefined) {
-                callback({data: _resetSyncState(_.get(response.data, _getObjStore(store).dataPrefix)), status: 200});
+                var unwrappedData = _unwrapData(response.data, store);
+                callback({data: _resetSyncState(unwrappedData), status: 200});
               } else {
                 callback({data: _resetSyncState(response.data), status: 200});
               }
@@ -385,14 +470,35 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Tries to post an array one-by-one; returns successful elements.
     function _safeArrayPost(array, url, callback) {
       var x = 0;
-      var successfulElements = [];
-      if(array.length == 0) { callback([]); return; }
+      var toPop = [];
+      var toRetry = [];
+      var toReplace = [];
+      var noChange = [];
+
+      if(array.length == 0) { callback({"toPop": [], "toRetry": [], "toReplace": [], "noChange": []}); return; }
       function loopArray(array) {
         _postRemote(array[x],url,function(response) {
-          if(response == 200) successfulElements.push(array[x]);
+
+          if(response.status == 200) {
+            toPop.push(array[x]);
+            if(array[x].successCallback) array[x].successCallback();
+          } else if(response.status == 0) {
+            noChange.push(array[x]);
+          } else {
+            if(_.find(view_model.retryOnResponseCodes, response.status) !== undefined) {
+              toRetry.push(array[x]);
+            } else if(_.find(view_model.replaceOnResponseCodes, response.status) !== undefined) {
+              toReplace.push(array[x]);
+              if(array[x].errorCallback) array[x].errorCallback(response); // Return entire response
+            } else {
+              toRetry.push(array[x]); // for now, retry on unknown code.
+            }
+          }
+
           x++;
           if(x < array.length) { loopArray(array); }
-          else { callback(successfulElements); }
+          else {
+            callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
         });
       };
       loopArray(array);
@@ -470,6 +576,21 @@ angular.module('offlineApp').service('offlineService', function($http) {
     };
 
     /* --------------- Utilities --------------- */
+
+    function _unwrapData(data, store) {
+      // First get the objStore:
+      var objStore = _getObjStore(store);
+
+      // Then get the nested data:
+      var nestedData = _.get(data, _getObjStore(store).dataPrefix);
+
+      // Then get the wrapper:
+      objStore.originalWrapper = data;
+
+      // Delete the data payload from the wrapper:
+      _.set(objStore.originalWrapper, objStore.dataPrefix, []);
+      return nestedData;
+    };
 
     function _generateTimestamp() {
       var d = new Date();
