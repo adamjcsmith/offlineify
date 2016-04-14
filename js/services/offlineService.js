@@ -9,22 +9,12 @@ angular.module('offlineApp').service('offlineService', function($http) {
     // Multistore:
     view_model.serviceDB = [
       {
-        "name": "gravestone",
-        "dataPrefix": "features",
-        "primaryKeyProperty": "id",
-        "timestampProperty": "properties.time_updated",
-        "readURL": "http://188.166.147.80/getBGMS?after=",
-        "updateURL": "http://188.166.147.80/post",
-        "createURL": "http://188.166.147.80/post",
-        "data": []
-      },
-      {
           "name": "cars",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
-          "readURL": "http://188.166.147.80/get?after=",
-          "updateURL": "http://188.166.147.80/post",
-          "createURL": "http://188.166.147.80/post",
+          "readURL": "http://offlinify.io/api/get?after=",
+          "updateURL": "http://offlinify.io/api/post",
+          "createURL": "http://offlinify.io/api/post",
           "data": []
       }, /*
        {
@@ -51,8 +41,8 @@ angular.module('offlineApp').service('offlineService', function($http) {
     view_model.maxRetry = 3; /* Try synchronising retry operations this many times */
 
     // IndexedDB Config:
-    view_model.indexedDBDatabaseName = "atlanticGeomatic-IDB";
-    view_model.indexedDBVersionNumber = 16; /* Increment this to wipe and reset IndexedDB */
+    view_model.indexedDBDatabaseName = "offlinifyDB-1";
+    view_model.indexedDBVersionNumber = 3; /* Increment this to wipe and reset IndexedDB */
     view_model.objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
