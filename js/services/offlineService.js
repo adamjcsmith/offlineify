@@ -1,6 +1,6 @@
 'use strict';
 
-angular.module('offlineApp').service('offlineService', function($http) {
+var Offlinify = (function($http) {
 
     var view_model = this;
 
@@ -622,4 +622,4 @@ angular.module('offlineApp').service('offlineService', function($http) {
     }
 
 
-  });
+  }());
