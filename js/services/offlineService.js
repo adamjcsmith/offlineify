@@ -1,6 +1,6 @@
 'use strict';
 
-angular.module('offlineApp').service('offlineService', function($http) {
+(function() {
 
     var view_model = this;
 
@@ -8,16 +8,6 @@ angular.module('offlineApp').service('offlineService', function($http) {
 
     // Multistore:
     view_model.serviceDB = [
-      {
-        "name": "gravestone",
-        "dataPrefix": "features",
-        "primaryKeyProperty": "id",
-        "timestampProperty": "properties.time_updated",
-        "readURL": "http://188.166.147.80/getBGMS?after=",
-        "updateURL": "http://188.166.147.80/post",
-        "createURL": "http://188.166.147.80/post",
-        "data": []
-      },
       {
           "name": "cars",
           "primaryKeyProperty": "id",
@@ -511,4 +501,4 @@ angular.module('offlineApp').service('offlineService', function($http) {
     }
 
 
-  });
+  }());
