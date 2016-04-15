@@ -7,7 +7,7 @@ var Offlinify = (function($http) {
     /* --------------- Configuration --------------- */
 
     // Multistore:
-    view_model.serviceDB = [
+    var serviceDB = [
       {
           "name": "cars",
           "primaryKeyProperty": "id",
@@ -20,36 +20,36 @@ var Offlinify = (function($http) {
     ];
 
     // Default Config:
-    view_model.autoSync = 0; /* Set to zero for no auto synchronisation */
-    view_model.pushSync = true;
-    view_model.initialSync = true;
-    view_model.allowIndexedDB = true; /* Switching to false disables IndexedDB */
-    view_model.allowRemote = true;
+    var autoSync = 0; /* Set to zero for no auto synchronisation */
+    var pushSync = true;
+    var initialSync = true;
+    var allowIndexedDB = true; /* Switching to false disables IndexedDB */
+    var allowRemote = true;
 
     // Error Config (Response Codes):
-    view_model.retryOnResponseCodes = [0,401,500,502]; /* Keep item (optimistically) on queue */
-    view_model.replaceOnResponseCodes = [400,403,404]; /* Delete item from queue, try to replace */
-    view_model.maxRetry = 3; /* Try synchronising retry operations this many times */
+    var retryOnResponseCodes = [0,401,500,502]; /* Keep item (optimistically) on queue */
+    var replaceOnResponseCodes = [400,403,404]; /* Delete item from queue, try to replace */
+    var maxRetry = 3; /* Try synchronising retry operations this many times */
 
     // IndexedDB Config:
-    view_model.indexedDBDatabaseName = "offlinifyDB-1";
-    view_model.indexedDBVersionNumber = 3; /* Increment this to wipe and reset IndexedDB */
-    view_model.objectStoreName = "testObjectStore";
+    var indexedDBDatabaseName = "offlinifyDB-1";
+    var indexedDBVersionNumber = 3; /* Increment this to wipe and reset IndexedDB */
+    var objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
 
     // Service Variables
-    view_model.idb = null;
-    view_model.observerCallbacks = [];
-    view_model.lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
+    var idb = null;
+    var observerCallbacks = [];
+    var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
-    view_model.syncInProgress = false;
-    view_model.callbackWhenSyncFinished = [];
+    var syncInProgress = false;
+    var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
-    view_model.indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
-    if(!view_model.allowIndexedDB) view_model.indexedDB = null;
+    indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
+    if(!allowIndexedDB) indexedDB = null;
 
     /* --------------- Create/Update and Retrieve --------------- */
 
@@ -67,7 +67,7 @@ var Offlinify = (function($http) {
       obj.successCallback = successCallback;
       obj.errorCallback = errorCallback;
       _patchLocal([obj], store, function(response) {
-        if(view_model.pushSync) sync(_notifyObservers);
+        if(pushSync) sync(_notifyObservers);
       });
     };
 
@@ -83,8 +83,8 @@ var Offlinify = (function($http) {
         callback(originalWrapper);
       }
 
-      if(view_model.syncInProgress) {
-        view_model.callbackWhenSyncFinished.push({"callback": deferredFunction});
+      if(syncInProgress) {
+        callbackWhenSyncFinished.push({"callback": deferredFunction});
       } else {
         deferredFunction(); // call immediately.
       }
@@ -96,16 +96,16 @@ var Offlinify = (function($http) {
      // Called by a controller to be notified of data changes:
     function subscribe(ctrlCallback) {
        _establishIDB(function() {
-         view_model.observerCallbacks.push(ctrlCallback);
-         if(!view_model.initialSync) return;
-         view_model.sync(function(response) {
+         observerCallbacks.push(ctrlCallback);
+         if(!initialSync) return;
+         sync(function(response) {
            ctrlCallback(response);
          });
        });
      };
 
     function _notifyObservers(status) {
-      angular.forEach(view_model.observerCallbacks, function(callback){
+      angular.forEach(observerCallbacks, function(callback){
         callback(status);
       });
     };
@@ -115,9 +115,9 @@ var Offlinify = (function($http) {
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
       console.log("Sync started.");
-      view_model.syncInProgress = true;
+      syncInProgress = true;
       var startClock = _generateTimestamp();
-      var newLocalRecords = _getLocalRecords(view_model.lastChecked);
+      var newLocalRecords = _getLocalRecords(lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
           callback((new Date(_generateTimestamp()) - new Date(startClock))/1000); // Load IDB records straight into DOM first.
@@ -140,40 +140,40 @@ var Offlinify = (function($http) {
     function syncFinished() {
       console.log("Sync finished.");
       // Call each of the callbacks in turn.
-      // Set view_model.syncInProgress back to false!
-      console.log("callback queue length was: " + view_model.callbackWhenSyncFinished.length);
-      _.forEach(view_model.callbackWhenSyncFinished, function(item) {
+      // Set syncInProgress back to false!
+      console.log("callback queue length was: " + callbackWhenSyncFinished.length);
+      _.forEach(callbackWhenSyncFinished, function(item) {
         item.callback(); // experimental
       });
-      view_model.callbackWhenSyncFinished = [];
-      view_model.syncInProgress = false;
+      callbackWhenSyncFinished = [];
+      syncInProgress = false;
     };
 
     // Patches remote edits to serviceDB + IndexedDB:
     function _patchRemoteChanges(callback) {
 
       // Reject request if remote is disabled:
-      if(!view_model.allowRemote) {
+      if(!allowRemote) {
           if(_IDBSupported()) callback(-1);
           else callback(-1);
           return;
       }
 
       // If there's no data models end request:
-      if(view_model.serviceDB.length == 0) { callback(-1); return; }
+      if(serviceDB.length == 0) { callback(-1); return; }
 
       var counter = 0;
 
       function doFunction() {
-        if(view_model.serviceDB.length == counter) {
-          view_model.lastChecked = _generateTimestamp();
+        if(serviceDB.length == counter) {
+          lastChecked = _generateTimestamp();
           callback(1);
           return;
         }
 
-        _getRemoteRecords(view_model.serviceDB[counter].name, function(response) {
+        _getRemoteRecords(serviceDB[counter].name, function(response) {
           if(response.status == 200) {
-            _patchLocal(response.data, view_model.serviceDB[counter].name, function(localResponse) {
+            _patchLocal(response.data, serviceDB[counter].name, function(localResponse) {
               counter++;
               doFunction();
             });
@@ -224,18 +224,18 @@ var Offlinify = (function($http) {
           // Update lastChecked:
           if(nonQueueElements.length > 0) {
             var recentSyncTime = _.get(sortedElements[0], idbRecords[i].timestampProperty);
-            if(recentSyncTime > view_model.lastChecked) view_model.lastChecked = recentSyncTime;
+            if(recentSyncTime > lastChecked) lastChecked = recentSyncTime;
 
           } else {
             if(queueElements.length > 0) {
               var recentSyncTime = _.get(queueElements[queueElements.length - 1], idbRecords[i].timestampProperty);
-              if(recentSyncTime > view_model.lastChecked) view_model.lastChecked = recentSyncTime;
+              if(recentSyncTime > lastChecked) lastChecked = recentSyncTime;
             }
           }
 
         }
 
-        if(idbRecords.length > 0) view_model.serviceDB = idbRecords;
+        if(idbRecords.length > 0) serviceDB = idbRecords;
 
         callback(1);
       });
@@ -243,22 +243,22 @@ var Offlinify = (function($http) {
 
     // Synchronises elements to remote when connection is available:
     function _reduceQueue(callback) {
-      if(!view_model.allowRemote) { callback(-1); return; }
+      if(!allowRemote) { callback(-1); return; }
 
       var counter = 0;
 
       function reduceObjectStore() {
 
         // If queue is empty then return:
-        if(counter == view_model.serviceDB.length) { callback(1); return; }
+        if(counter == serviceDB.length) { callback(1); return; }
 
         // Sort into create and update queues:
-        var createQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 0 });
-        var updateQueue = _.filter(view_model.serviceDB[counter].data, { "syncState" : 2 });
+        var createQueue = _.filter(serviceDB[counter].data, { "syncState" : 0 });
+        var updateQueue = _.filter(serviceDB[counter].data, { "syncState" : 2 });
 
         // Reduce the queue:
-        _safeArrayPost(createQueue, view_model.serviceDB[counter].createURL, function(createResponse) {
-          _safeArrayPost(updateQueue, view_model.serviceDB[counter].updateURL, function(updateResponse) {
+        _safeArrayPost(createQueue, serviceDB[counter].createURL, function(createResponse) {
+          _safeArrayPost(updateQueue, serviceDB[counter].updateURL, function(updateResponse) {
 
             var itemsToPatch = [];
 
@@ -274,7 +274,7 @@ var Offlinify = (function($http) {
             var popUpdates = updateResponse.toPop;
             var itemsToPop = popCreates.concat(popUpdates);
             _.forEach(itemsToPop, function(value) {
-              _.set(value, view_model.serviceDB[counter].timestampProperty, _generateTimestamp());
+              _.set(value, serviceDB[counter].timestampProperty, _generateTimestamp());
             });
             itemsToPatch = itemsToPatch.concat(_resetSyncState(itemsToPop));
 
@@ -286,9 +286,9 @@ var Offlinify = (function($http) {
             _.forEach(retryProcessed.toReplace, function(value) {
               if(value.errorCallback) value.errorCallback(0);
             });
-            itemsToPatch = itemsToPatch.concat(_replaceQueue(view_model.serviceDB[counter].name, itemsToReplace));
+            itemsToPatch = itemsToPatch.concat(_replaceQueue(serviceDB[counter].name, itemsToReplace));
 
-            _patchLocal(itemsToPatch, view_model.serviceDB[counter].name, function(response) {
+            _patchLocal(itemsToPatch, serviceDB[counter].name, function(response) {
               counter++;
               reduceObjectStore();
             });
@@ -311,7 +311,7 @@ var Offlinify = (function($http) {
         else item.syncAttempts = item.syncAttempts + 1;
 
         // Deal with items that have too many tries:
-        if(item.syncAttempts > view_model.maxRetry) toReplace.push(item);
+        if(item.syncAttempts > maxRetry) toReplace.push(item);
         else survived.push(item);
 
       });
@@ -334,15 +334,15 @@ var Offlinify = (function($http) {
 
     function checkServiceDBEmpty() {
       var totalRecords = [];
-      for(var i=0; i<view_model.serviceDB.length; i++) {
-        totalRecords = totalRecords.concat(view_model.serviceDB[i].data);
+      for(var i=0; i<serviceDB.length; i++) {
+        totalRecords = totalRecords.concat(serviceDB[i].data);
       }
       if(totalRecords.length == 0) return true;
       else return false;
     };
 
     function _getObjStore(name) {
-      return _.find( view_model.serviceDB, {"name": name} );
+      return _.find( serviceDB, {"name": name} );
     };
 
     function _patchServiceDB(data, store) {
@@ -366,9 +366,9 @@ var Offlinify = (function($http) {
 
     function _getLocalRecords(sinceTime) {
       var totalRecords = [];
-      for(var i=0; i<view_model.serviceDB.length; i++) {
-        totalRecords = totalRecords.concat( _.filter(view_model.serviceDB[i].data, function(o) {
-          return new Date(_.get(o, view_model.serviceDB[i].timestampProperty)).toISOString() > sinceTime;
+      for(var i=0; i<serviceDB.length; i++) {
+        totalRecords = totalRecords.concat( _.filter(serviceDB[i].data, function(o) {
+          return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
         }));
       }
       return totalRecords;
@@ -417,7 +417,7 @@ var Offlinify = (function($http) {
     function _getRemoteRecords(store, callback) {
       $http({
           method: 'GET',
-          url: _getObjStore(store).readURL + view_model.lastChecked
+          url: _getObjStore(store).readURL + lastChecked
         })
         .then(
           function successCallback(response) {
@@ -459,9 +459,9 @@ var Offlinify = (function($http) {
           } else if(response.status == 0) {
             noChange.push(array[x]);
           } else {
-            if(_.find(view_model.retryOnResponseCodes, response.status) !== undefined) {
+            if(_.find(retryOnResponseCodes, response.status) !== undefined) {
               toRetry.push(array[x]);
-            } else if(_.find(view_model.replaceOnResponseCodes, response.status) !== undefined) {
+            } else if(_.find(replaceOnResponseCodes, response.status) !== undefined) {
               toReplace.push(array[x]);
               if(array[x].errorCallback) array[x].errorCallback(response); // Return entire response
             } else {
@@ -481,25 +481,25 @@ var Offlinify = (function($http) {
     /* --------------- IndexedDB --------------- */
 
     function _IDBSupported() {
-      return !( view_model.indexedDB === undefined || view_model.indexedDB === null );
+      return !( indexedDB === undefined || indexedDB === null );
     };
 
     function _establishIDB(callback) {
       // End request if IDB is already set-up or is not supported:
-      if(!_IDBSupported() || view_model.idb) { callback(); return; }
-      var request = view_model.indexedDB.open(view_model.indexedDBDatabaseName, view_model.indexedDBVersionNumber);
+      if(!_IDBSupported() || idb) { callback(); return; }
+      var request = indexedDB.open(indexedDBDatabaseName, indexedDBVersionNumber);
       request.onupgradeneeded = function(e) {
         var db = e.target.result;
         e.target.transaction.onerror = function() { console.error(this.error); };
-        if(db.objectStoreNames.contains(view_model.objectStoreName)) {
-          db.deleteObjectStore(view_model.objectStoreName);
+        if(db.objectStoreNames.contains(objectStoreName)) {
+          db.deleteObjectStore(objectStoreName);
         }
-        var offlineItems = db.createObjectStore(view_model.objectStoreName, { keyPath: "name", autoIncrement: false } );
-        //var dateIndex = offlineItems.createIndex("byDate", view_model.timestampProperty, {unique: false});
-        view_model.idb = db;
+        var offlineItems = db.createObjectStore(objectStoreName, { keyPath: "name", autoIncrement: false } );
+        //var dateIndex = offlineItems.createIndex("byDate", timestampProperty, {unique: false});
+        idb = db;
       };
       request.onsuccess = function(e) {
-        view_model.idb = e.target.result;
+        idb = e.target.result;
         callback();
       };
       request.onerror = function() { console.error(this.error); };
@@ -508,7 +508,7 @@ var Offlinify = (function($http) {
     // Get the entire IndexedDB image:
     function _getIDB(callback) {
       var transaction = _newIDBTransaction();
-      var objStore = transaction.objectStore(view_model.objectStoreName);
+      var objStore = transaction.objectStore(objectStoreName);
       var keyRange = IDBKeyRange.lowerBound(0);
       //var cursorRequest = objStore.index('byDate').openCursor(keyRange);
       var cursorRequest = objStore.openCursor(keyRange);
@@ -533,7 +533,7 @@ var Offlinify = (function($http) {
       // Strip angular hash keys:
       _bulkStripHashKeys(_getObjStore(store).data);
 
-      var objStore = _newIDBTransaction().objectStore(view_model.objectStoreName);
+      var objStore = _newIDBTransaction().objectStore(objectStoreName);
       objStore.put(_getObjStore(store)).onsuccess = function() {
         callback();
         return;
@@ -541,11 +541,11 @@ var Offlinify = (function($http) {
     };
 
     function _newIDBTransaction() {
-      return view_model.idb.transaction([view_model.objectStoreName], 'readwrite');
+      return idb.transaction([objectStoreName], 'readwrite');
     };
 
     function wipeIDB(callback) {
-      var req = view_model.indexedDB.deleteDatabase(view_model.indexedDBDatabaseName);
+      var req = indexedDB.deleteDatabase(indexedDBDatabaseName);
       req.onsuccess = function(event) { callback(); }
     };
 
@@ -592,23 +592,27 @@ var Offlinify = (function($http) {
       return array;
     }
 
+    /* --------------- Diagnostics --------------- */
+
+
+
     /* --------------- Sync Loop -------------- */
 
-    if(view_model.autoSync > 0 && parseInt(view_model.autoSync) === view_model.autoSync) {
+    if(autoSync > 0 && parseInt(autoSync) === autoSync) {
       (function syncLoop() {
         setTimeout(function() {
           sync(function(response) {
             _notifyObservers(response);
           });
           syncLoop();
-        }, view_model.autoSync);
+        }, autoSync);
       })();
     }
 
     return {
-      objectUpdate: view_model.objectUpdate,
-      wrapData: view_model.wrapData,
-      subscribe: view_model.subscribe
+      objectUpdate: objectUpdate,
+      wrapData: wrapData,
+      subscribe: subscribe
     }
 
   }());
