@@ -16,16 +16,7 @@ var Offlinify = (function($http) {
           "updateURL": "http://offlinify.io/api/post",
           "createURL": "http://offlinify.io/api/post",
           "data": []
-      }, /*
-       {
-          "name": "planes",
-          "primaryKeyProperty": "id",
-          "timestampProperty": "timestamp",
-          "readURL": "http://188.166.147.80/getBig?after=",
-          "updateURL": "http://188.166.147.80/post",
-          "createURL": "http://188.166.147.80/post",
-          "data": []
-      } */
+      }
     ];
 
     // Default Config:
@@ -51,13 +42,6 @@ var Offlinify = (function($http) {
     view_model.idb = null;
     view_model.observerCallbacks = [];
     view_model.lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
-
-    // Public Functions
-    view_model.subscribe = subscribe;
-    view_model.sync = sync;
-    view_model.objectUpdate = objectUpdate;
-    view_model.wipeIDB = wipeIDB;
-    view_model.wrapData = wrapData;
 
     // Asynchronous handling
     view_model.syncInProgress = false;
@@ -621,5 +605,10 @@ var Offlinify = (function($http) {
       })();
     }
 
+    return {
+      objectUpdate: view_model.objectUpdate,
+      wrapData: view_model.wrapData,
+      subscribe: view_model.subscribe
+    }
 
   }());
