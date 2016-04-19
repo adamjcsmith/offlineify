@@ -2,8 +2,6 @@
 
 var Offlinify = (function($http) {
 
-    var view_model = this;
-
     /* --------------- Configuration --------------- */
 
     // Multistore:
