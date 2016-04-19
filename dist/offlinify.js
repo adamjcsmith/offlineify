@@ -623,6 +623,8 @@ var Offlinify = (function() {
         console.log("A connection error was received");
       };
 
+      request.send();
+
     }
 
     /* --------------- Sync Loop -------------- */
