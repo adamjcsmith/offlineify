@@ -592,7 +592,13 @@ var Offlinify = (function($http) {
 
     /* --------------- Diagnostics --------------- */
 
-
+    function returnObjStoreNames() {
+      var objStoreNames = [];
+      _.forEach(serviceDB, function(objStore) {
+        objStoreNames.push(objStore.name);
+      });
+      return objStoreNames;
+    };
 
     /* --------------- Sync Loop -------------- */
 
