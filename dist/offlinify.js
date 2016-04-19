@@ -639,7 +639,8 @@ var Offlinify = (function() {
     return {
       objectUpdate: objectUpdate,
       wrapData: wrapData,
-      subscribe: subscribe
+      subscribe: subscribe,
+      receiveData: receiveData
     }
 
   }());
