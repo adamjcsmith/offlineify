@@ -613,12 +613,13 @@ var Offlinify = (function() {
         console.log(resp);
       } else {
         // We reached our target server, but it returned an error
-
+        console.log("Target server returned a 400+ error");
       }
       };
 
       request.onerror = function() {
       // There was a connection error of some sort
+        console.log("A connection error was received");
       };
 
     }
