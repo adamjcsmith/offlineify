@@ -603,6 +603,7 @@ var Offlinify = (function() {
     /* --------------- $http re-implementation --------------- */
 
     function receiveData() {
+      console.log("Request opened");
       var request = new XMLHttpRequest();
       request.open('GET', 'http://www.offlinify.io/api/get', true);
 
