@@ -610,7 +610,7 @@ var Offlinify = (function() {
       request.onload = function() {
       if (request.status >= 200 && request.status < 400) {
         // Success!
-        var resp = request.responseText;
+        var resp = request.response;
         console.log(resp);
       } else {
         // We reached our target server, but it returned an error
