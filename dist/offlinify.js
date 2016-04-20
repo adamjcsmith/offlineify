@@ -31,7 +31,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-1";
-    var indexedDBVersionNumber = 6; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 10; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -42,6 +42,7 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
+    var configComplete = false;
     var firstSynced = false;
     var syncInProgress = false;
     var callbackWhenSyncFinished = [];
@@ -53,7 +54,6 @@ var Offlinify = (function() {
     /* --------------- Initial Configuration --------------- */
 
     function init(config) {
-
       config = config || {};
       autoSync = config.autoSync || autoSync;
       pushSync = config.pushSync || pushSync;
@@ -67,6 +67,9 @@ var Offlinify = (function() {
       indexedDBVersionNumber = config.indexedDBVersionNumber || indexedDBVersionNumber;
       objectStoreName = config.objectStoreName || objectStoreName;
 
+      // Init complete, so trigger first sync cycle:
+      configComplete = true;
+      startProcess();
     };
 
     function objStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
@@ -76,8 +79,8 @@ var Offlinify = (function() {
         return;
       }
       newObjStore.name = name;
-      newObjStore.primaryKeyProp = primaryKeyProp;
-      newObjStore.timestampProp = timestampProp;
+      newObjStore.primaryKeyProperty = primaryKeyProp;
+      newObjStore.timestampProperty = timestampProp;
       newObjStore.readURL = readURL;
       newObjStore.createURL = createURL;
       newObjStore.updateURL = updateURL || createURL;
@@ -108,7 +111,9 @@ var Offlinify = (function() {
 
     // Wraps up the data and queues the callback when required:
     function wrapData(store, callback) {
-      if(_getObjStore(store) === undefined) return {};
+      if(_getObjStore(store) === undefined) {
+        console.error("objStore '" + store + "' does not exist."); return {}
+      };
       var deferredFunction = function(callback) {
         // Only wrap data if an original wrapper was specified:
         if(_getObjStore(store).originalWrapper !== undefined) {
@@ -673,17 +678,19 @@ var Offlinify = (function() {
 
     /* --------------- Sync Loop -------------- */
 
-    _establishIDB(function() {
-      (function syncLoop() {
-        setTimeout(function() {
-          sync(function(response) {
-            _notifyObservers(response);
-          });
-          if(autoSync > 0 && parseInt(autoSync) === autoSync) syncLoop();
-        }, autoSync);
-      })();
-    });
-
+    // Called by config to denote end of setup:
+    function startProcess() {
+      _establishIDB(function() {
+        (function syncLoop() {
+          setTimeout(function() {
+            sync(function(response) {
+              _notifyObservers(response);
+            });
+            if(autoSync > 0 && parseInt(autoSync) === autoSync) syncLoop();
+          }, autoSync);
+        })();
+      });
+    };
 
     /* --------------- Method Exposure --------------- */
 
@@ -691,7 +698,9 @@ var Offlinify = (function() {
       objectUpdate: objectUpdate,
       wrapData: wrapData,
       subscribe: subscribe,
-      receiveData: receiveData
+      receiveData: receiveData,
+      init: init,
+      objStore: objStore
     }
 
     /* -------------- Recycle Bin --------------- */
