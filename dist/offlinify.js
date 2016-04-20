@@ -20,7 +20,6 @@ var Offlinify = (function() {
     // Default Config:
     var autoSync = 0; /* Set to zero for no auto synchronisation */
     var pushSync = true;
-    var initialSync = true;
     var allowIndexedDB = true; /* Switching to false disables IndexedDB */
     var allowRemote = true;
     var earlyDataReturn = false; /* Return IDB records immediately - results in two callback calls */
@@ -108,7 +107,7 @@ var Offlinify = (function() {
     function subscribe(ctrlCallback) {
        _establishIDB(function() {
          observerCallbacks.push(ctrlCallback);
-         if(!initialSync) return;
+         if(!firstSynced) return;
          sync(function(response) {
            ctrlCallback(response);
          });
@@ -414,37 +413,27 @@ var Offlinify = (function() {
     /* --------------- Remote --------------- */
 
     function _postRemote(data, url, callback) {
-      $http({
-          url: url,
-          method: "POST",
-          data: [data],
-          headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }
-      })
-      .then(
-        function successCallback(response) {
-          callback(response); // return response code.
-        }, function errorCallback(response) {
-          callback(response);
-        });
+      sendData(data, url, function(response) {
+        callback(response);
+      });
     };
 
-
-  function _getRemoteRecords(store, callback) {
-    receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
-      if(response.data != []) {
-        if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
-        // Unprefix data:
-        if(_getObjStore(store).dataPrefix !== undefined) {
-          var unwrappedData = _unwrapData(response.data, store);
-          callback({data: _resetSyncState(unwrappedData), status: 200});
+    function _getRemoteRecords(store, callback) {
+      receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
+        if(response.data != []) {
+          if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
+          // Unprefix data:
+          if(_getObjStore(store).dataPrefix !== undefined) {
+            var unwrappedData = _unwrapData(response.data, store);
+            callback({data: _resetSyncState(unwrappedData), status: 200});
+          } else {
+            callback({data: _resetSyncState(response.data), status: 200});
+          }
         } else {
-          callback({data: _resetSyncState(response.data), status: 200});
+          callback({data: [], status: response.status});
         }
-      } else {
-        callback({data: [], status: response.status});
-      }
-    });
-  };
+      });
+    };
 
 
     // Tries to post an array one-by-one; returns successful elements.
@@ -626,8 +615,8 @@ var Offlinify = (function() {
         }
       };
 
+      // Server unreachable:
       request.onerror = function() {
-        // Connection error of some kind:
         console.log("A connection error was received for: " + url);
         callback({ response: 0, data: [] });
       };
@@ -635,23 +624,18 @@ var Offlinify = (function() {
       request.send();
     };
 
-    /* --------------- Sync Loop -------------- */
-
-    /*
-    if(initialSync || (autoSync > 0 && parseInt(autoSync) === autoSync)) {
-      _establishIDB(function() {
-        // Ensure IDB establishment:
-        (function syncLoop() {
-          setTimeout(function() {
-            sync(function(response) {
-              _notifyObservers(response);
-            });
-            syncLoop();
-          }, autoSync);
-        })();
-      });
+    function sendData(data, url, callback) {
+      var request = new XMLHttpRequest();
+      request.open('POST', url, true);
+      request.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+      request.send(JSON.stringify(data));
+      request.onreadystatechange = function() {
+        callback(request.status); // Return status and defer logic until later
+      }
     }
-    */
+
+
+    /* --------------- Sync Loop -------------- */
 
     _establishIDB(function() {
       (function syncLoop() {
@@ -673,5 +657,24 @@ var Offlinify = (function() {
       subscribe: subscribe,
       receiveData: receiveData
     }
+
+    /* -------------- Recycle Bin --------------- */
+
+  /*
+      function _postRemote(data, url, callback) {
+        $http({
+            url: url,
+            method: "POST",
+            data: [data],
+            headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }
+        })
+        .then(
+          function successCallback(response) {
+            callback(response); // return response code.
+          }, function errorCallback(response) {
+            callback(response);
+          });
+      };
+  */
 
   }());
