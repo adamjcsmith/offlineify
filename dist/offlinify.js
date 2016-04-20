@@ -23,6 +23,7 @@ var Offlinify = (function() {
     var initialSync = true;
     var allowIndexedDB = true; /* Switching to false disables IndexedDB */
     var allowRemote = true;
+    var earlyDataReturn = false; /* Return IDB records immediately - results in two callback calls */
 
     // Error Config (Response Codes):
     var retryOnResponseCodes = [0,401,500,502]; /* Keep item (optimistically) on queue */
@@ -31,7 +32,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-1";
-    var indexedDBVersionNumber = 3; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 6; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "testObjectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -42,6 +43,7 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
+    var firstSynced = false;
     var syncInProgress = false;
     var callbackWhenSyncFinished = [];
 
@@ -71,22 +73,33 @@ var Offlinify = (function() {
 
     // Wraps up the data and queues the callback when required:
     function wrapData(store, callback) {
-      console.log("Wrap data called");
       if(_getObjStore(store) === undefined) return {};
-
-      var deferredFunction = function() {
-        var originalWrapper = _getObjStore(store).originalWrapper;
-        var currentData = _getObjStore(store).data;
-        _.set(originalWrapper, _getObjStore(store).dataPrefix, currentData);
-        callback(originalWrapper);
+      var deferredFunction = function(callback) {
+        // Only wrap data if an original wrapper was specified:
+        if(_getObjStore(store).originalWrapper !== undefined) {
+          var originalWrapper = _getObjStore(store).originalWrapper;
+          var currentData = _getObjStore(store).data;
+          _.set(originalWrapper, _getObjStore(store).dataPrefix, currentData);
+          callback(originalWrapper);
+        } else {
+          callback(_getObjStore(store).data);
+        }
       }
 
       if(syncInProgress) {
-        callbackWhenSyncFinished.push({"callback": deferredFunction});
+        callbackWhenSyncFinished.push({"callbackFunction": deferredFunction, "callback": callback});
       } else {
-        deferredFunction(); // call immediately.
-      }
 
+        if(!firstSynced) {
+          _establishIDB(function() {
+            sync(function(response) {
+              deferredFunction(callback); // call after first sync
+            });
+          })
+        } else {
+          deferredFunction(callback); // call immediately.
+        }
+      }
     };
 
     /* --------------- Observer Pattern --------------- */
@@ -113,12 +126,13 @@ var Offlinify = (function() {
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
       console.log("Sync started.");
+      if(syncInProgress) { return; } // experimental
       syncInProgress = true;
       var startClock = _generateTimestamp();
       var newLocalRecords = _getLocalRecords(lastChecked);
       if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          callback((new Date(_generateTimestamp()) - new Date(startClock))/1000); // Load IDB records straight into DOM first.
+          if(earlyDataReturn) callback((new Date(_generateTimestamp()) - new Date(startClock))/1000); // Load IDB records straight into DOM first.
           mergeEditsReduceQueue(startClock, callback);
         });
       } else {
@@ -141,7 +155,7 @@ var Offlinify = (function() {
       // Set syncInProgress back to false!
       console.log("callback queue length was: " + callbackWhenSyncFinished.length);
       _.forEach(callbackWhenSyncFinished, function(item) {
-        item.callback(); // experimental
+        item.callbackFunction(item.callback); // experimental
       });
       callbackWhenSyncFinished = [];
       syncInProgress = false;
@@ -202,6 +216,8 @@ var Offlinify = (function() {
     function _restoreLocalState(callback) {
       if(!_IDBSupported()) { callback(-1); return; }
       _getIDB(function(idbRecords) {
+
+        console.log("Calling _restoreLocalState");
 
         // Collect the entire queue (?)
         var allElements = [];
@@ -412,32 +428,24 @@ var Offlinify = (function() {
         });
     };
 
-    function _getRemoteRecords(store, callback) {
-      $http({
-          method: 'GET',
-          url: _getObjStore(store).readURL + lastChecked
-        })
-        .then(
-          function successCallback(response) {
 
-            if(response.data != [] ) {
+  function _getRemoteRecords(store, callback) {
+    receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
+      if(response.data != []) {
+        if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
+        // Unprefix data:
+        if(_getObjStore(store).dataPrefix !== undefined) {
+          var unwrappedData = _unwrapData(response.data, store);
+          callback({data: _resetSyncState(unwrappedData), status: 200});
+        } else {
+          callback({data: _resetSyncState(response.data), status: 200});
+        }
+      } else {
+        callback({data: [], status: response.status});
+      }
+    });
+  };
 
-              // If the data is prefixed, get from the prefix instead:
-              if(_getObjStore(store).dataPrefix !== undefined) {
-                var unwrappedData = _unwrapData(response.data, store);
-                callback({data: _resetSyncState(unwrappedData), status: 200});
-              } else {
-                callback({data: _resetSyncState(response.data), status: 200});
-              }
-            }
-            else {
-              callback({data: [], status: 200});
-            }
-
-        }, function errorCallback(response) {
-            callback({data: [], status: response.status});
-        });
-    };
 
     // Tries to post an array one-by-one; returns successful elements.
     function _safeArrayPost(array, url, callback) {
@@ -602,43 +610,62 @@ var Offlinify = (function() {
 
     /* --------------- $http re-implementation --------------- */
 
-    function receiveData() {
-      console.log("Request opened");
+    function receiveData(url, callback) {
+
       var request = new XMLHttpRequest();
-      request.open('GET', 'http://www.offlinify.io/api/get', true);
+      request.open('GET', url, true);
 
       request.onload = function() {
-      if (request.status >= 200 && request.status < 400) {
-        // Success!
-        var resp = request.response;
-        console.log(resp);
-      } else {
-        // We reached our target server, but it returned an error
-        console.log("Target server returned a 400+ error");
-      }
+        if (request.status >= 200 && request.status < 400) {
+          // 2xx - 3xx response:
+          callback({ response: request.status, data: request.response });
+        } else {
+          // 4xx - 5xx response:
+          console.log("Target server returned a " + request.status + " error");
+          callback({ response: request.status, data: [] });
+        }
       };
 
       request.onerror = function() {
-      // There was a connection error of some sort
-        console.log("A connection error was received");
+        // Connection error of some kind:
+        console.log("A connection error was received for: " + url);
+        callback({ response: 0, data: [] });
       };
 
       request.send();
-
-    }
+    };
 
     /* --------------- Sync Loop -------------- */
 
-    if(autoSync > 0 && parseInt(autoSync) === autoSync) {
+    /*
+    if(initialSync || (autoSync > 0 && parseInt(autoSync) === autoSync)) {
+      _establishIDB(function() {
+        // Ensure IDB establishment:
+        (function syncLoop() {
+          setTimeout(function() {
+            sync(function(response) {
+              _notifyObservers(response);
+            });
+            syncLoop();
+          }, autoSync);
+        })();
+      });
+    }
+    */
+
+    _establishIDB(function() {
       (function syncLoop() {
         setTimeout(function() {
           sync(function(response) {
             _notifyObservers(response);
           });
-          syncLoop();
+          if(autoSync > 0 && parseInt(autoSync) === autoSync) syncLoop();
         }, autoSync);
       })();
-    }
+    });
+
+
+    /* --------------- Method Exposure --------------- */
 
     return {
       objectUpdate: objectUpdate,
