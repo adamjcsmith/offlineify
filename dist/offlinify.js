@@ -6,7 +6,7 @@ var Offlinify = (function() {
 
     // Multistore:
     var serviceDB = [
-      {
+      /*{
           "name": "cars",
           "primaryKeyProperty": "id",
           "timestampProperty": "timestamp",
@@ -14,7 +14,7 @@ var Offlinify = (function() {
           "updateURL": "http://offlinify.io/api/post",
           "createURL": "http://offlinify.io/api/post",
           "data": []
-      }
+      } */
     ];
 
     // Default Config:
@@ -49,6 +49,42 @@ var Offlinify = (function() {
     // Determine IndexedDB Support
     indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!allowIndexedDB) indexedDB = null;
+
+    /* --------------- Initial Configuration --------------- */
+
+    function init(config) {
+
+      config = config || {};
+      autoSync = config.autoSync || autoSync;
+      pushSync = config.pushSync || pushSync;
+      allowIndexedDB = config.allowIndexedDB || allowIndexedDB;
+      allowRemote = config.allowRemote || allowRemote;
+      earlyDataReturn = config.earlyDataReturn || earlyDataReturn;
+      retryOnResponseCodes = config.retryOnResponseCodes || retryOnResponseCodes;
+      replaceOnResponseCodes = config.replaceOnResponseCodes || replaceOnResponseCodes;
+      maxRetry = config.maxRetry || maxRetry;
+      indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
+      indexedDBVersionNumber = config.indexedDBVersionNumber || indexedDBVersionNumber;
+      objectStoreName = config.objectStoreName || objectStoreName;
+
+    };
+
+    function objStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
+      var newObjStore = {};
+      if(name === undefined || primaryKeyProp === undefined || timestampProp === undefined || readURL === undefined || createURL === undefined) {
+        console.error("Object store declaration has invalid arguments.");
+        return;
+      }
+      newObjStore.name = name;
+      newObjStore.primaryKeyProp = primaryKeyProp;
+      newObjStore.timestampProp = timestampProp;
+      newObjStore.readURL = readURL;
+      newObjStore.createURL = createURL;
+      newObjStore.updateURL = updateURL || createURL;
+      if(dataPrefix) newObjStore.dataPrefix = dataPrefix;
+      newObjStore.data = [];
+      serviceDB.push(newObjStore);
+    };
 
     /* --------------- Create/Update and Retrieve --------------- */
 
