@@ -64,6 +64,13 @@ var Offlinify = (function() {
         console.error("Object store declaration has invalid arguments.");
         return;
       }
+
+      var checkExistingObjStores = _.filter(serviceDB, { "name": name });
+      if(checkExistingObjStores.length > 0) {
+        console.error("Object store of this name already exists");
+        return;
+      }
+
       newObjStore.name = name;
       newObjStore.primaryKeyProperty = primaryKeyProp;
       newObjStore.timestampProperty = timestampProp;
@@ -617,12 +624,13 @@ var Offlinify = (function() {
 
     /* --------------- Diagnostics --------------- */
 
-    function returnObjStoreNames() {
-      var objStoreNames = [];
-      _.forEach(serviceDB, function(objStore) {
-        objStoreNames.push(objStore.name);
+    // Returns only the specifications of each objStore
+    function objStoreMap() {
+      var objStoreMap = _.cloneDeep(serviceDB);
+      _.forEach(objStoreMap, function(objStore) {
+        objStore.data = [];
       });
-      return objStoreNames;
+      return objStoreMap;
     };
 
     /* --------------- $http re-implementation --------------- */
@@ -685,9 +693,9 @@ var Offlinify = (function() {
       objectUpdate: objectUpdate,
       wrapData: wrapData,
       subscribe: subscribe,
-      receiveData: receiveData,
       init: init,
-      objStore: objStore
+      objStore: objStore,
+      objStoreMap: objStoreMap
     }
 
     /* -------------- Recycle Bin --------------- */
