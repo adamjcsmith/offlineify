@@ -17,8 +17,8 @@ var Offlinify = (function() {
     var maxRetry = 3; /* Try synchronising retry operations this many times */
 
     // IndexedDB Config:
-    var indexedDBDatabaseName = "offlinifyDB-1";
-    var indexedDBVersionNumber = 11; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBDatabaseName = "offlinifyDB-2";
+    var indexedDBVersionNumber = 2; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -58,7 +58,7 @@ var Offlinify = (function() {
       startProcess();
     };
 
-    function objStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
+    function objectStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
       var newObjStore = {};
       if(name === undefined || primaryKeyProp === undefined || timestampProp === undefined || readURL === undefined || createURL === undefined) {
         console.error("Object store declaration has invalid arguments.");
@@ -86,7 +86,7 @@ var Offlinify = (function() {
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, successCallback, errorCallback) {
-      if(_getObjStore(store) === undefined) return;
+      if(_getObjStore(store) === undefined) { console.error("Invalid objStore"); return; }
       _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
       if(obj.hasOwnProperty("syncState")) {
         if(obj.syncState > 0) { obj.syncState = 2; }
@@ -694,7 +694,7 @@ var Offlinify = (function() {
       wrapData: wrapData,
       subscribe: subscribe,
       init: init,
-      objStore: objStore,
+      objectStore: objectStore,
       objStoreMap: objStoreMap
     }
 
