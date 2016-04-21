@@ -2,20 +2,7 @@
 
 var Offlinify = (function() {
 
-    /* --------------- Configuration --------------- */
-
-    // Multistore:
-    var serviceDB = [
-      /*{
-          "name": "cars",
-          "primaryKeyProperty": "id",
-          "timestampProperty": "timestamp",
-          "readURL": "http://offlinify.io/api/get?after=",
-          "updateURL": "http://offlinify.io/api/post",
-          "createURL": "http://offlinify.io/api/post",
-          "data": []
-      } */
-    ];
+    /* --------------- Defaults --------------- */
 
     // Default Config:
     var autoSync = 0; /* Set to zero for no auto synchronisation */
@@ -25,18 +12,19 @@ var Offlinify = (function() {
     var earlyDataReturn = false; /* Return IDB records immediately - results in two callback calls */
 
     // Error Config (Response Codes):
-    var retryOnResponseCodes = [0,401,500,502]; /* Keep item (optimistically) on queue */
+    var retryOnResponseCodes = [401,500,502]; /* Keep item (optimistically) on queue */
     var replaceOnResponseCodes = [400,403,404]; /* Delete item from queue, try to replace */
     var maxRetry = 3; /* Try synchronising retry operations this many times */
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-1";
-    var indexedDBVersionNumber = 10; /* Increment this to wipe and reset IndexedDB */
-    var objectStoreName = "testObjectStore";
+    var indexedDBVersionNumber = 11; /* Increment this to wipe and reset IndexedDB */
+    var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
 
     // Service Variables
+    var serviceDB = [];
     var idb = null;
     var observerCallbacks = [];
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
@@ -64,8 +52,6 @@ var Offlinify = (function() {
       replaceOnResponseCodes = config.replaceOnResponseCodes || replaceOnResponseCodes;
       maxRetry = config.maxRetry || maxRetry;
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
-      indexedDBVersionNumber = config.indexedDBVersionNumber || indexedDBVersionNumber;
-      objectStoreName = config.objectStoreName || objectStoreName;
 
       // Init complete, so trigger first sync cycle:
       configComplete = true;
@@ -257,7 +243,8 @@ var Offlinify = (function() {
       if(!_IDBSupported()) { callback(-1); return; }
       _getIDB(function(idbRecords) {
 
-        console.log("Calling _restoreLocalState");
+        // Check whether we need to upgrade due to different objStores:
+        // <--- Do this here --->
 
         // Collect the entire queue (?)
         var allElements = [];
