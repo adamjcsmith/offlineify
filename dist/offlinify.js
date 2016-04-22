@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 2; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 10; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -34,6 +34,7 @@ var Offlinify = (function() {
     var firstSynced = false; /* to be deprecated */
     var syncInProgress = false;
     var setupState = 0;
+    var deferredFunctions = [];
     var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
@@ -55,6 +56,7 @@ var Offlinify = (function() {
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
       // Init complete, so trigger first sync cycle:
+      if(setupState == 0) setupState = 1; // Support re-init
       startProcess();
     };
 
@@ -86,20 +88,40 @@ var Offlinify = (function() {
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, successCallback, errorCallback) {
-      if(_getObjStore(store) === undefined) { console.error("Invalid objStore"); return; }
-      _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
-      if(obj.hasOwnProperty("syncState")) {
-        if(obj.syncState > 0) { obj.syncState = 2; }
-      } else {
-        obj = _.cloneDeep(obj);
-        obj.syncState = 0;
-        _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
-      }
-      obj.successCallback = successCallback;
-      obj.errorCallback = errorCallback;
-      _patchLocal([obj], store, function(response) {
-        if(pushSync) sync(_notifyObservers);
-      });
+
+      var deferredFunction = function(args) {
+        var obj = args.obj;
+        var store = args.store;
+        var successCallback = args.successCallback;
+        var errorCallback = args.errorCallback;
+
+        console.log("store was: " + store + " and obj was: " + JSON.stringify(obj));
+
+        if(_getObjStore(store) === undefined) {
+          console.log("for obj: " + JSON.stringify(obj) + " an error should be thrown: ");
+          console.error("Invalid objStore"); return;
+        } else {
+          console.log("for obj: " + JSON.stringify(obj) + " an objStore was apparently found.");
+        }
+        _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
+        if(obj.hasOwnProperty("syncState")) {
+          if(obj.syncState > 0) { obj.syncState = 2; }
+        } else {
+          obj = _.cloneDeep(obj);
+          obj.syncState = 0;
+          console.log("branch which should set a UUID is being called.");
+          _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
+          console.log("The object is now: " + JSON.stringify(obj));
+        }
+        obj.successCallback = successCallback;
+        obj.errorCallback = errorCallback;
+        _patchLocal(obj, store, function(response) {
+          if(pushSync) sync(_notifyObservers);
+        });
+      };
+
+      deferIfSyncing({ "deferredFunction": deferredFunction, "args": { "obj": obj, "store": store, "successCallback": successCallback, "errorCallback": errorCallback }});
+
     };
 
     // Wraps up the data and queues the callback when required:
@@ -149,12 +171,17 @@ var Offlinify = (function() {
      };
 
     function _notifyObservers(status) {
-      angular.forEach(observerCallbacks, function(callback){
+      _.forEach(observerCallbacks, function(callback){
         callback(status);
       });
     };
 
     /* --------------- Synchronisation --------------- */
+
+    function deferIfSyncing(deferredFunction) {
+      if(!syncInProgress && setupState == 2) deferredFunction.deferredFunction(deferredFunction.args);
+      else deferredFunctions.push(deferredFunction);
+    };
 
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
@@ -191,6 +218,16 @@ var Offlinify = (function() {
         item.callbackFunction(item.callback); // experimental
       });
       callbackWhenSyncFinished = [];
+
+      console.log("deferredFunctions length is: " + deferredFunctions.length);
+      _.forEach(deferredFunctions, function(item) {
+        console.log("For each loop");
+        item.deferredFunction(item.args);
+      });
+      deferredFunctions = [];
+
+      console.log("serviceDB is now: " + JSON.stringify(serviceDB));
+
       syncInProgress = false;
     };
 
@@ -416,7 +453,13 @@ var Offlinify = (function() {
       var totalRecords = [];
       for(var i=0; i<serviceDB.length; i++) {
         totalRecords = totalRecords.concat( _.filter(serviceDB[i].data, function(o) {
-          return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
+
+          try{
+            return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
+          } catch(err) {
+            console.error("Timestamp property isn't in the right format. This is probably due to an object which is in the wrong format: " + JSON.stringify(o));
+          }
+
         }));
       }
       return totalRecords;
@@ -564,7 +607,8 @@ var Offlinify = (function() {
       _bulkStripHashKeys(_getObjStore(store).data);
 
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
-      objStore.put(_getObjStore(store)).onsuccess = function() {
+      var theNewObjStore = _.cloneDeep(_getObjStore(store));
+      objStore.put(theNewObjStore).onsuccess = function() {
         callback();
         return;
       }
