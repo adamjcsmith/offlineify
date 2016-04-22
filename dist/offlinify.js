@@ -30,9 +30,10 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
-    var configComplete = false;
-    var firstSynced = false;
+    //var configComplete = false; /* deprecated */
+    var firstSynced = false; /* to be deprecated */
     var syncInProgress = false;
+    var setupState = 0;
     var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
@@ -54,7 +55,6 @@ var Offlinify = (function() {
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
       // Init complete, so trigger first sync cycle:
-      configComplete = true;
       startProcess();
     };
 
