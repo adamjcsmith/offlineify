@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 22; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 23; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -186,7 +186,7 @@ var Offlinify = (function() {
 
       var counter = 0;
 
-      function doFunction() {
+      (function doLoop() {
         if(serviceDB.length == counter) {
           lastChecked = _generateTimestamp();
           callback();
@@ -195,14 +195,13 @@ var Offlinify = (function() {
 
         // Get the remote records, patch locally if successful.
         _getRemoteRecords(serviceDB[counter].name, function(response) {
-           if(response.status != 200) { counter++; doFunction(); return; }
+           if(response.status != 200) { counter++; doLoop(); return; }
            _patchLocal(response.data, serviceDB[counter].name, function() {
              counter++;
-             doFunction();
+             doLoop();
            });
         });
-      };
-      doFunction();
+      })();
     };
 
     // Patches the local storages with a dataset.
@@ -224,10 +223,8 @@ var Offlinify = (function() {
       if(!_IDBSupported()) { callback(); return; }
       _getIDB(function(idbRecords) {
         // <--- Do objStore-based upgrading here --->
-
         // Update lastUpdated using each object store:
         for(var i=0; i<idbRecords.length; i++) _setLastUpdated(idbRecords[i]);
-
         if(idbRecords.length > 0) serviceDB = idbRecords;
         callback();
       });
@@ -237,7 +234,6 @@ var Offlinify = (function() {
     function _setLastUpdated(store) {
       var sortedElements = _sortElements(store.data, store.timestampProperty);
       var elements = _separateByQueueState(store.data);
-
       if(elements.nonQueue.length > 0) {
         _replaceLastCheckedIfGreater(sortedElements[0], store.timestampProperty);
         return;
@@ -265,100 +261,71 @@ var Offlinify = (function() {
       if( syncedTime > lastChecked) lastChecked = syncedTime;
     }
 
+    /* ------ Queue ------ */
 
     // Synchronises elements to remote when connection is available:
     function _reduceQueue(callback) {
-      if(!allowRemote) { callback(-1); return; }
-
-      var counter = 0;
-
-      function reduceObjectStore() {
-
-        // If queue is empty then return:
-        if(counter == serviceDB.length) { callback(1); return; }
-
-        // Sort into create and update queues:
-        var createQueue = _.filter(serviceDB[counter].data, { "syncState" : 0 });
-        var updateQueue = _.filter(serviceDB[counter].data, { "syncState" : 2 });
-
-        // Reduce the queue:
-        _safeArrayPost(createQueue, serviceDB[counter].createURL, function(createResponse) {
-          _safeArrayPost(updateQueue, serviceDB[counter].updateURL, function(updateResponse) {
-
-            var itemsToPatch = [];
-
-            // Items to retry later:
-            var retryCreates = createResponse.toRetry;
-            var retryUpdates = updateResponse.toRetry;
-
-            console.log("retryCreates was: " + JSON.stringify(retryCreates) + " and retryUpdates was: " + JSON.stringify(retryUpdates));
-
-            var itemsToRetry = retryCreates.concat(retryUpdates);
-            var retryProcessed = _retryQueue(itemsToRetry);
-            itemsToPatch = itemsToPatch.concat(retryProcessed.survived);
-
-            // Items to pop from the queue:
-            var popCreates = createResponse.toPop;
-            var popUpdates = updateResponse.toPop;
-            var itemsToPop = popCreates.concat(popUpdates);
-            _.forEach(itemsToPop, function(value) {
-              _.set(value, serviceDB[counter].timestampProperty, _generateTimestamp());
-            });
-            itemsToPatch = itemsToPatch.concat(_resetSyncState(itemsToPop));
-
-            // Items to replace now:
-            var replaceCreates = createResponse.toReplace;
-            var replaceUpdates = updateResponse.toReplace;
-            var itemsToReplace = replaceCreates.concat(replaceUpdates);
-            itemsToReplace = itemsToReplace.concat(retryProcessed.toReplace);
-            _.forEach(retryProcessed.toReplace, function(value) {
-              if(value.errorCallback) value.errorCallback(0);
-            });
-            itemsToPatch = itemsToPatch.concat(_replaceQueue(serviceDB[counter].name, itemsToReplace));
-
-            _patchLocal(itemsToPatch, serviceDB[counter].name, function(response) {
-              counter++;
+      if(!allowRemote) { callback(); return; }
+      var x = 0;
+      (function reduceObjectStore() {
+        if(x == serviceDB.length) { callback(); return; } // Return on empty queue.
+        var queue = _separateCreateUpdateOperations(serviceDB[x].data);
+        _safeArrayPost(queue.creates, serviceDB[x].createURL, function(createResponse) {
+          _safeArrayPost(queue.updates, serviceDB[x].updateURL, function(updateResponse) {
+            var itemsToPatch = _processQueueAfterRemoteResponse(createResponse, updateResponse, x);
+            _patchLocal(itemsToPatch, serviceDB[x].name, function(response) {
+              x++;
               reduceObjectStore();
             });
-
           });
         });
-
-      }
-
-      reduceObjectStore();
+      })();
     };
 
-    function _retryQueue(elementsToRetry) {
+    // Divide into create and update operation queues:
+    function _separateCreateUpdateOperations(records) {
+      return { creates: _.filter(records, { "syncState" : 0 }), updates: _.filter(records, { "syncState" : 2 }) };
+    }
+
+    function _processQueueAfterRemoteResponse(createResponse, updateResponse, objStoreID) {
+      var itemsToPatch = [];
+
+      // Collect items to retry and check/update syncstate:
+      var itemsToRetry = createResponse.toRetry.concat(updateResponse.toRetry);
+      var retryProcessed = _checkSyncState(itemsToRetry);
+      itemsToPatch = itemsToPatch.concat(retryProcessed.survived);
+
+      // Collect items to pop and reset timestamp:
+      var itemsToPop = createResponse.toPop.concat(updateResponse.toPop);
+      _.forEach(itemsToPop, function(value) { _.set(value, serviceDB[objStoreID].timestampProperty, _generateTimestamp()); });
+      itemsToPatch = itemsToPatch.concat(_resetSyncState(itemsToPop));
+
+      // Collect items to replace:
+      var itemsToReplace = createResponse.toReplace.concat(updateResponse.toReplace);
+      itemsToReplace = itemsToReplace.concat(retryProcessed.toReplace); // add max retried elements
+      itemsToPatch = itemsToPatch.concat(_replaceQueue(serviceDB[objStoreID].name, itemsToReplace));
+
+      return itemsToPatch;
+    };
+
+    // Update the syncState value for retry-able elements:
+    function _checkSyncState(elementsToRetry) {
       var survived = [];
       var toReplace = [];
-
-      console.log("elementsToRetry was: " + JSON.stringify(elementsToRetry));
-
       _.forEach(elementsToRetry, function(item) {
-
-        // Set or increment a try:
-        console.log("This retry object is: " + JSON.stringify(item));
         if(item.syncAttempts === undefined) item.syncAttempts = 1;
         else item.syncAttempts = item.syncAttempts + 1;
-
-        // Deal with items that have too many tries:
         if(item.syncAttempts > maxRetry) toReplace.push(item);
         else survived.push(item);
-
       });
       return({"survived": survived, "toReplace": toReplace});
     };
 
+    // Set elements to the epoch to force it to be replaced:
     function _replaceQueue(store, elementsToReplace) {
-      var counter = 0;
-      var timestampProp = _getObjStore(store).timestampProperty;
-
-      // Set each element to the epoch to force it to be replaced:
       _.forEach(elementsToReplace, function(item) {
-        _.set(item, timestampProp, "1971-01-01T00:00:00.000Z");
+        _.set(item, _getObjStore(store).timestampProperty, "1971-01-01T00:00:00.000Z");
       });
-
       return elementsToReplace;
     };
 
@@ -378,9 +345,7 @@ var Offlinify = (function() {
     };
 
     function _patchServiceDB(data, store) {
-      console.log("patchServiceDB called, with data: " + JSON.stringify(data));
       var operations = _filterOperations(data, store);
-      console.log("operations was: " + JSON.stringify(operations));
       _updatesToServiceDB(operations.updateOperations, store);
       _pushToServiceDB(operations.createOperations, store);
     };
@@ -402,13 +367,11 @@ var Offlinify = (function() {
       var totalRecords = [];
       for(var i=0; i<serviceDB.length; i++) {
         totalRecords = totalRecords.concat( _.filter(serviceDB[i].data, function(o) {
-
           try{
             return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
           } catch(err) {
-            console.error("Timestamp property isn't in the right format. This is probably due to an object which is in the wrong format: " + JSON.stringify(o));
+            console.error("There's an object with an invalid timestamp property: " + JSON.stringify(o));
           }
-
         }));
       }
       return totalRecords;
@@ -420,9 +383,6 @@ var Offlinify = (function() {
     function _filterOperations(data, store) {
       var updateOps = [];
       var createOps = [];
-      console.log("in _filterOperations, data received was: " + JSON.stringify(data) + "and store was: " + store);
-      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
-      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
       if(data.constructor !== Array) data = [data];
       for(var i=0; i<data.length; i++) {
         var queryJSON = {};
@@ -435,19 +395,11 @@ var Offlinify = (function() {
     }
 
     function _resetSyncState(records) {
-      for(var i=0; i<records.length; i++) {
-        records[i].syncState = 1;
-      }
+      for(var i=0; i<records.length; i++) records[i].syncState = 1;
       return records;
     };
 
     /* --------------- Remote --------------- */
-
-    function _postRemote(data, url, callback) {
-      sendData(data, url, function(response) {
-        callback(response);
-      });
-    };
 
     function _getRemoteRecords(store, callback) {
       receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
@@ -466,7 +418,6 @@ var Offlinify = (function() {
       });
     };
 
-
     // Tries to post an array one-by-one; returns successful elements.
     function _safeArrayPost(array, url, callback) {
       var x = 0;
@@ -476,9 +427,8 @@ var Offlinify = (function() {
       var noChange = [];
 
       if(array.length == 0) { callback({"toPop": [], "toRetry": [], "toReplace": [], "noChange": []}); return; }
-      function loopArray(array) {
-        _postRemote(array[x],url,function(response) {
-
+      (function loopArray() {
+        sendData(array[x],url,function(response) {
           if(x >= array.length) return;
 
           if(response.status == 200) {
@@ -498,13 +448,10 @@ var Offlinify = (function() {
           }
 
           x++;
-          if(x < array.length) { loopArray(array); }
-          else {
-            console.log("in _safeArrayPost, toRetry was: " + JSON.stringify(toRetry));
-            callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
+          if(x < array.length) { loopArray(); }
+          else { callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
         });
-      };
-      loopArray(array);
+      })();
     };
 
     /* --------------- IndexedDB --------------- */
@@ -514,8 +461,7 @@ var Offlinify = (function() {
     };
 
     function _establishIDB(callback) {
-      // End request if IDB is already set-up or is not supported:
-      if(!_IDBSupported() || idb) { callback(); return; }
+      if(!_IDBSupported() || idb) { callback(); return; } // End if no support or disabled
       var request = indexedDB.open(indexedDBDatabaseName, indexedDBVersionNumber);
       request.onupgradeneeded = function(e) {
         var db = e.target.result;
@@ -557,19 +503,12 @@ var Offlinify = (function() {
     // Replaces an older IDB store with a new local one:
     function _replaceIDBStore(store, callback) {
       // Reject request if no store by that name exists:
-      if(_getObjStore(store) === undefined) { callback(); return; }
-
-      // Strip angular hash keys:
-      _bulkStripHashKeys(_getObjStore(store).data);
-
+      if(!checkIfObjectStoreExists(store)) { callback(); return; }
+      _bulkStripHashKeys(_getObjStore(store).data); // Strip Angular-like hashkeys
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
-      //theNewObjStore.data = []; // Temporary fix
-      //theNewObjStore.data = JSON.stringify(theNewObjStore.data);
-      //theNewObjStore.data = [theNewObjStore.data];
       theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
       objStore.put(theNewObjStore).onsuccess = function() {
-        console.log("Put was successful!!!!!");
         callback();
         return;
       }
@@ -579,24 +518,12 @@ var Offlinify = (function() {
       return idb.transaction([objectStoreName], 'readwrite');
     };
 
-    function wipeIDB(callback) {
-      var req = indexedDB.deleteDatabase(indexedDBDatabaseName);
-      req.onsuccess = function(event) { callback(); }
-    };
-
     /* --------------- Utilities --------------- */
 
     function _unwrapData(data, store) {
-      // First get the objStore:
       var objStore = _getObjStore(store);
-
-      // Then get the nested data:
       var nestedData = _.get(data, _getObjStore(store).dataPrefix);
-
-      // Then get the wrapper:
       objStore.originalWrapper = data;
-
-      // Delete the data payload from the wrapper:
       _.set(objStore.originalWrapper, objStore.dataPrefix, []);
       return nestedData;
     };
@@ -641,10 +568,8 @@ var Offlinify = (function() {
     /* --------------- $http re-implementation --------------- */
 
     function receiveData(url, callback) {
-
       var request = new XMLHttpRequest();
       request.open('GET', url, true);
-
       request.onload = function() {
         if (request.status >= 200 && request.status < 400) {
           // 2xx - 3xx response:
@@ -672,6 +597,10 @@ var Offlinify = (function() {
       request.send(JSON.stringify(data));
       request.onreadystatechange = function() {
         callback(request.status); // Return status and defer logic until later
+      }
+      request.onerror = function() {
+        console.log("A connection error was received for: " + url);
+        callback({response: 0, data: [] });
       }
     }
 
