@@ -30,11 +30,9 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
-    var firstSynced = false; /* to be deprecated */
     var syncInProgress = false;
     var setupState = 0;
     var deferredFunctions = [];
-    var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
     var indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
@@ -54,7 +52,6 @@ var Offlinify = (function() {
       maxRetry = config.maxRetry || maxRetry;
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
-      // Init complete, so trigger first sync cycle:
       if(setupState == 0) setupState = 1; // Support re-init
       startProcess();
     };
@@ -66,11 +63,7 @@ var Offlinify = (function() {
         return;
       }
 
-      var checkExistingObjStores = _.filter(serviceDB, { "name": name });
-      if(checkExistingObjStores.length > 0) {
-        console.error("Object store of this name already exists");
-        return;
-      }
+      if(_getObjStore(name)) { console.error("An objStore called " + name + " has already been declared."); return; }
 
       newObjStore.name = name;
       newObjStore.primaryKeyProperty = primaryKeyProp;
@@ -160,22 +153,20 @@ var Offlinify = (function() {
       console.log("Sync started.");
       if(syncInProgress) { return; } // experimental
       syncInProgress = true;
-      var startClock = _generateTimestamp();
-      var newLocalRecords = _getLocalRecords(lastChecked);
-      if( newLocalRecords.length == 0 && checkServiceDBEmpty() ) {
+      if( _getLocalRecords(lastChecked).length == 0 && checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          if(earlyDataReturn) callback((new Date(_generateTimestamp()) - new Date(startClock))/1000); // Load IDB records straight into DOM first.
-          mergeEditsReduceQueue(startClock, callback);
+          if(earlyDataReturn) callback(); // Load IDB records straight into DOM first.
+          mergeData(callback);
         });
       } else {
-        mergeEditsReduceQueue(startClock, callback);
+        mergeData(callback);
       }
     };
 
-    function mergeEditsReduceQueue(startTime, callback) {
+    function mergeData(callback) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
-          callback((new Date(_generateTimestamp()) - new Date(startTime))/1000);
+          callback();
           syncFinished();
         });
       });
@@ -183,53 +174,32 @@ var Offlinify = (function() {
 
     function syncFinished() {
       console.log("Sync finished.");
-      // Call each of the callbacks in turn.``
-      // Set syncInProgress back to false!
-      console.log("callback queue length was: " + callbackWhenSyncFinished.length);
-      _.forEach(callbackWhenSyncFinished, function(item) {
-        item.callbackFunction(item.callback); // experimental
-      });
-      callbackWhenSyncFinished = [];
-
       callDeferredFunctions();
-
-      console.log("serviceDB is now: " + JSON.stringify(serviceDB));
-
       syncInProgress = false;
     };
 
     // Patches remote edits to serviceDB + IndexedDB:
     function _patchRemoteChanges(callback) {
 
-      // Reject request if remote is disabled:
-      if(!allowRemote) {
-          if(_IDBSupported()) callback(-1);
-          else callback(-1);
-          return;
-      }
-
-      // If there's no data models end request:
-      if(serviceDB.length == 0) { callback(-1); return; }
+      // Reject if remote disabled, or there are no data models:
+      if( !allowRemote || serviceDB.length == 0 ) { callback(); return; }
 
       var counter = 0;
 
       function doFunction() {
         if(serviceDB.length == counter) {
           lastChecked = _generateTimestamp();
-          callback(1);
+          callback();
           return;
         }
 
+        // Get the remote records, patch locally if successful.
         _getRemoteRecords(serviceDB[counter].name, function(response) {
-          if(response.status == 200) {
-            _patchLocal(response.data, serviceDB[counter].name, function(localResponse) {
-              counter++;
-              doFunction();
-            });
-          } else {
-            counter++;
-            doFunction();
-           }
+           if(response.status != 200) { counter++; doFunction(); return; }
+           _patchLocal(response.data, serviceDB[counter].name, function() {
+             counter++;
+             doFunction();
+           });
         });
       };
       doFunction();
@@ -237,14 +207,13 @@ var Offlinify = (function() {
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
-      console.log("Patch local called");
       _patchServiceDB(data, store);
       if( _IDBSupported() ) {
         _replaceIDBStore(store, function() {
-          callback(1); // Patched to IDB + ServiceDB
+          callback(); // Patched to IDB + ServiceDB
         });
       } else {
-        callback(0); // Patched to ServiceDB only.
+        callback(); // Patched to ServiceDB only.
       }
     };
 
@@ -252,47 +221,50 @@ var Offlinify = (function() {
 
     // Puts IndexedDB store into scope:
     function _restoreLocalState(callback) {
-      if(!_IDBSupported()) { callback(-1); return; }
+      if(!_IDBSupported()) { callback(); return; }
       _getIDB(function(idbRecords) {
+        // <--- Do objStore-based upgrading here --->
 
-        // Check whether we need to upgrade due to different objStores:
-        // <--- Do this here --->
-
-        // Collect the entire queue (?)
-        var allElements = [];
-
-        // For each first level (object store) element:
-        for(var i=0; i<idbRecords.length; i++) {
-
-          // Sort by newest date:
-          console.log("Attempting to get: " + idbRecords[i].name);
-          var sortedElements = _.reverse(_.sortBy(idbRecords[i].data, function(o) {
-            return new Date(_.get(o, idbRecords[i].timestampProperty)).toISOString();
-          }));
-
-          // Divide into queue/non-queue elements:
-          var nonQueueElements = _.filter(idbRecords[i].data, {syncState: 1});
-          var queueElements = _.filter(idbRecords[i].data, function(o) { return o.syncState != 1; });
-
-          // Update lastChecked:
-          if(nonQueueElements.length > 0) {
-            var recentSyncTime = _.get(sortedElements[0], idbRecords[i].timestampProperty);
-            if(recentSyncTime > lastChecked) lastChecked = recentSyncTime;
-
-          } else {
-            if(queueElements.length > 0) {
-              var recentSyncTime = _.get(queueElements[queueElements.length - 1], idbRecords[i].timestampProperty);
-              if(recentSyncTime > lastChecked) lastChecked = recentSyncTime;
-            }
-          }
-
-        }
+        // Update lastUpdated using each object store:
+        for(var i=0; i<idbRecords.length; i++) _setLastUpdated(idbRecords[i]);
 
         if(idbRecords.length > 0) serviceDB = idbRecords;
-
-        callback(1);
+        callback();
       });
     };
+
+    // Get last edited record from each objStore and update lastUpdated:
+    function _setLastUpdated(store) {
+      var sortedElements = _sortElements(store.data, store.timestampProperty);
+      var elements = _separateByQueueState(store.data);
+
+      if(elements.nonQueue.length > 0) {
+        _replaceLastCheckedIfGreater(sortedElements[0], store.timestampProperty);
+        return;
+      }
+      if(elements.queue.length > 0) {
+        _replaceLastCheckedIfGreater(elements.queue[elements.queue.length -1], store.timestampProperty);
+      }
+    };
+
+    // Sort elements by a given property:
+    function _sortElements(records, property) {
+      return _.reverse(_.sortBy(records, function(o) {
+        return new Date(_.get(o, property)).toISOString();
+      }));
+    }
+
+    // Divide into non-queued and queued items:
+    function _separateByQueueState(records) {
+      return {  nonQueue: _.filter(records, {syncState: 1}), queue: _.filter(records, function(o) { return o.syncState != 1; }) };
+    }
+
+    // Replace lastChecked if a data property has a time greater than it
+    function _replaceLastCheckedIfGreater(location, property) {
+      var syncedTime = _.get(location, property);
+      if( syncedTime > lastChecked) lastChecked = syncedTime;
+    }
+
 
     // Synchronises elements to remote when connection is available:
     function _reduceQueue(callback) {
@@ -730,24 +702,5 @@ var Offlinify = (function() {
       objectStore: objectStore,
       objStoreMap: objStoreMap
     }
-
-    /* -------------- Recycle Bin --------------- */
-
-  /*
-      function _postRemote(data, url, callback) {
-        $http({
-            url: url,
-            method: "POST",
-            data: [data],
-            headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }
-        })
-        .then(
-          function successCallback(response) {
-            callback(response); // return response code.
-          }, function errorCallback(response) {
-            callback(response);
-          });
-      };
-  */
 
   }());
