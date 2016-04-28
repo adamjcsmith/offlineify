@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 2; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 22; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -30,14 +30,14 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
-    //var configComplete = false; /* deprecated */
     var firstSynced = false; /* to be deprecated */
     var syncInProgress = false;
     var setupState = 0;
+    var deferredFunctions = [];
     var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
-    indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
+    var indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!allowIndexedDB) indexedDB = null;
 
     /* --------------- Initial Configuration --------------- */
@@ -55,6 +55,7 @@ var Offlinify = (function() {
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
       // Init complete, so trigger first sync cycle:
+      if(setupState == 0) setupState = 1; // Support re-init
       startProcess();
     };
 
@@ -86,20 +87,42 @@ var Offlinify = (function() {
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, successCallback, errorCallback) {
-      if(_getObjStore(store) === undefined) { console.error("Invalid objStore"); return; }
-      _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
-      if(obj.hasOwnProperty("syncState")) {
-        if(obj.syncState > 0) { obj.syncState = 2; }
-      } else {
-        obj = _.cloneDeep(obj);
-        obj.syncState = 0;
-        _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
-      }
-      obj.successCallback = successCallback;
-      obj.errorCallback = errorCallback;
-      _patchLocal([obj], store, function(response) {
-        if(pushSync) sync(_notifyObservers);
-      });
+
+      var deferredFunction = function(args) {
+        var obj = args.obj;
+        var store = args.store;
+        var successCallback = args.successCallback;
+        var errorCallback = args.errorCallback;
+
+        console.log("store was: " + store + " and obj was: " + JSON.stringify(obj));
+
+        if(_getObjStore(store) === undefined) {
+          console.log("for obj: " + JSON.stringify(obj) + " an error should be thrown: ");
+          console.error(); return;
+        } else {
+          console.log("for obj: " + JSON.stringify(obj) + " an objStore was apparently found.");
+        }
+        _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
+        if(obj.hasOwnProperty("syncState")) {
+          if(obj.syncState > 0) { obj.syncState = 2; }
+        } else {
+          obj = _.cloneDeep(obj);
+          obj.syncState = 0;
+          console.log("branch which should set a UUID is being called.");
+          _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
+          console.log("The object is now: " + JSON.stringify(obj));
+        }
+        console.log("Top of the success callback area");
+        obj.successCallback = successCallback;
+        obj.errorCallback = errorCallback;
+        console.log("Got to the bottom bit!!!");
+        _patchLocal(obj, store, function(response) {
+          if(pushSync) sync(_notifyObservers);
+        });
+      };
+
+      deferIfSyncing({ "deferredFunction": deferredFunction, "args": { "obj": obj, "store": store, "successCallback": successCallback, "errorCallback": errorCallback }});
+
     };
 
     // Wraps up the data and queues the callback when required:
@@ -149,12 +172,17 @@ var Offlinify = (function() {
      };
 
     function _notifyObservers(status) {
-      angular.forEach(observerCallbacks, function(callback){
+      _.forEach(observerCallbacks, function(callback){
         callback(status);
       });
     };
 
     /* --------------- Synchronisation --------------- */
+
+    function deferIfSyncing(deferredFunction) {
+      if(!syncInProgress && setupState == 2) deferredFunction.deferredFunction(deferredFunction.args);
+      else deferredFunctions.push(deferredFunction);
+    };
 
     // Restores local state on first sync, or patches local and remote changes:
     function sync(callback) {
@@ -191,6 +219,16 @@ var Offlinify = (function() {
         item.callbackFunction(item.callback); // experimental
       });
       callbackWhenSyncFinished = [];
+
+      console.log("deferredFunctions length is: " + deferredFunctions.length);
+      _.forEach(deferredFunctions, function(item) {
+        console.log("For each loop");
+        item.deferredFunction(item.args);
+      });
+      deferredFunctions = [];
+
+      console.log("serviceDB is now: " + JSON.stringify(serviceDB));
+
       syncInProgress = false;
     };
 
@@ -233,6 +271,7 @@ var Offlinify = (function() {
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
+      console.log("Patch local called");
       _patchServiceDB(data, store);
       if( _IDBSupported() ) {
         _replaceIDBStore(store, function() {
@@ -313,6 +352,9 @@ var Offlinify = (function() {
             // Items to retry later:
             var retryCreates = createResponse.toRetry;
             var retryUpdates = updateResponse.toRetry;
+
+            console.log("retryCreates was: " + JSON.stringify(retryCreates) + " and retryUpdates was: " + JSON.stringify(retryUpdates));
+
             var itemsToRetry = retryCreates.concat(retryUpdates);
             var retryProcessed = _retryQueue(itemsToRetry);
             itemsToPatch = itemsToPatch.concat(retryProcessed.survived);
@@ -352,9 +394,13 @@ var Offlinify = (function() {
     function _retryQueue(elementsToRetry) {
       var survived = [];
       var toReplace = [];
+
+      console.log("elementsToRetry was: " + JSON.stringify(elementsToRetry));
+
       _.forEach(elementsToRetry, function(item) {
 
         // Set or increment a try:
+        console.log("This retry object is: " + JSON.stringify(item));
         if(item.syncAttempts === undefined) item.syncAttempts = 1;
         else item.syncAttempts = item.syncAttempts + 1;
 
@@ -394,7 +440,9 @@ var Offlinify = (function() {
     };
 
     function _patchServiceDB(data, store) {
+      console.log("patchServiceDB called, with data: " + JSON.stringify(data));
       var operations = _filterOperations(data, store);
+      console.log("operations was: " + JSON.stringify(operations));
       _updatesToServiceDB(operations.updateOperations, store);
       _pushToServiceDB(operations.createOperations, store);
     };
@@ -416,7 +464,13 @@ var Offlinify = (function() {
       var totalRecords = [];
       for(var i=0; i<serviceDB.length; i++) {
         totalRecords = totalRecords.concat( _.filter(serviceDB[i].data, function(o) {
-          return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
+
+          try{
+            return new Date(_.get(o, serviceDB[i].timestampProperty)).toISOString() > sinceTime;
+          } catch(err) {
+            console.error("Timestamp property isn't in the right format. This is probably due to an object which is in the wrong format: " + JSON.stringify(o));
+          }
+
         }));
       }
       return totalRecords;
@@ -428,6 +482,10 @@ var Offlinify = (function() {
     function _filterOperations(data, store) {
       var updateOps = [];
       var createOps = [];
+      console.log("in _filterOperations, data received was: " + JSON.stringify(data) + "and store was: " + store);
+      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
+      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
+      if(data.constructor !== Array) data = [data];
       for(var i=0; i<data.length; i++) {
         var queryJSON = {};
         _.set(queryJSON, _getObjStore(store).primaryKeyProperty, _.get(data[i], _getObjStore(store).primaryKeyProperty));
@@ -483,6 +541,8 @@ var Offlinify = (function() {
       function loopArray(array) {
         _postRemote(array[x],url,function(response) {
 
+          if(x >= array.length) return;
+
           if(response.status == 200) {
             toPop.push(array[x]);
             if(array[x].successCallback) array[x].successCallback();
@@ -502,6 +562,7 @@ var Offlinify = (function() {
           x++;
           if(x < array.length) { loopArray(array); }
           else {
+            console.log("in _safeArrayPost, toRetry was: " + JSON.stringify(toRetry));
             callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
         });
       };
@@ -564,7 +625,13 @@ var Offlinify = (function() {
       _bulkStripHashKeys(_getObjStore(store).data);
 
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
-      objStore.put(_getObjStore(store)).onsuccess = function() {
+      var theNewObjStore = _.cloneDeep(_getObjStore(store));
+      //theNewObjStore.data = []; // Temporary fix
+      //theNewObjStore.data = JSON.stringify(theNewObjStore.data);
+      //theNewObjStore.data = [theNewObjStore.data];
+      theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
+      objStore.put(theNewObjStore).onsuccess = function() {
+        console.log("Put was successful!!!!!");
         callback();
         return;
       }

@@ -34,7 +34,7 @@ var testTimestampProperty = "timestamp";
 var testReadURL = "http://offlinify.io/api/get?after=";
 var testCreateURL = "http://offlinify.io/api/post";
 
-var testObject = [{ timestamp: "2016-01-01T00:00:00.000Z"}];
+var testObject = { timestamp: "2016-01-01T00:00:00.000Z"};
 
 
 describe('objStore Declaration', function() {
