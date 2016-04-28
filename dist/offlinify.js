@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 10; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 22; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -30,7 +30,6 @@ var Offlinify = (function() {
     var lastChecked = new Date("1970-01-01T00:00:00.000Z").toISOString(); /* Initially the epoch */
 
     // Asynchronous handling
-    //var configComplete = false; /* deprecated */
     var firstSynced = false; /* to be deprecated */
     var syncInProgress = false;
     var setupState = 0;
@@ -38,7 +37,7 @@ var Offlinify = (function() {
     var callbackWhenSyncFinished = [];
 
     // Determine IndexedDB Support
-    indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
+    var indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!allowIndexedDB) indexedDB = null;
 
     /* --------------- Initial Configuration --------------- */
@@ -99,7 +98,7 @@ var Offlinify = (function() {
 
         if(_getObjStore(store) === undefined) {
           console.log("for obj: " + JSON.stringify(obj) + " an error should be thrown: ");
-          console.error("Invalid objStore"); return;
+          console.error(); return;
         } else {
           console.log("for obj: " + JSON.stringify(obj) + " an objStore was apparently found.");
         }
@@ -113,8 +112,10 @@ var Offlinify = (function() {
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
           console.log("The object is now: " + JSON.stringify(obj));
         }
+        console.log("Top of the success callback area");
         obj.successCallback = successCallback;
         obj.errorCallback = errorCallback;
+        console.log("Got to the bottom bit!!!");
         _patchLocal(obj, store, function(response) {
           if(pushSync) sync(_notifyObservers);
         });
@@ -270,6 +271,7 @@ var Offlinify = (function() {
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
+      console.log("Patch local called");
       _patchServiceDB(data, store);
       if( _IDBSupported() ) {
         _replaceIDBStore(store, function() {
@@ -350,6 +352,9 @@ var Offlinify = (function() {
             // Items to retry later:
             var retryCreates = createResponse.toRetry;
             var retryUpdates = updateResponse.toRetry;
+
+            console.log("retryCreates was: " + JSON.stringify(retryCreates) + " and retryUpdates was: " + JSON.stringify(retryUpdates));
+
             var itemsToRetry = retryCreates.concat(retryUpdates);
             var retryProcessed = _retryQueue(itemsToRetry);
             itemsToPatch = itemsToPatch.concat(retryProcessed.survived);
@@ -389,9 +394,13 @@ var Offlinify = (function() {
     function _retryQueue(elementsToRetry) {
       var survived = [];
       var toReplace = [];
+
+      console.log("elementsToRetry was: " + JSON.stringify(elementsToRetry));
+
       _.forEach(elementsToRetry, function(item) {
 
         // Set or increment a try:
+        console.log("This retry object is: " + JSON.stringify(item));
         if(item.syncAttempts === undefined) item.syncAttempts = 1;
         else item.syncAttempts = item.syncAttempts + 1;
 
@@ -431,7 +440,9 @@ var Offlinify = (function() {
     };
 
     function _patchServiceDB(data, store) {
+      console.log("patchServiceDB called, with data: " + JSON.stringify(data));
       var operations = _filterOperations(data, store);
+      console.log("operations was: " + JSON.stringify(operations));
       _updatesToServiceDB(operations.updateOperations, store);
       _pushToServiceDB(operations.createOperations, store);
     };
@@ -471,6 +482,10 @@ var Offlinify = (function() {
     function _filterOperations(data, store) {
       var updateOps = [];
       var createOps = [];
+      console.log("in _filterOperations, data received was: " + JSON.stringify(data) + "and store was: " + store);
+      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
+      console.log("diagnostics. primaryKeyProperty was: " + _getObjStore(store).primaryKeyProperty);
+      if(data.constructor !== Array) data = [data];
       for(var i=0; i<data.length; i++) {
         var queryJSON = {};
         _.set(queryJSON, _getObjStore(store).primaryKeyProperty, _.get(data[i], _getObjStore(store).primaryKeyProperty));
@@ -526,6 +541,8 @@ var Offlinify = (function() {
       function loopArray(array) {
         _postRemote(array[x],url,function(response) {
 
+          if(x >= array.length) return;
+
           if(response.status == 200) {
             toPop.push(array[x]);
             if(array[x].successCallback) array[x].successCallback();
@@ -545,6 +562,7 @@ var Offlinify = (function() {
           x++;
           if(x < array.length) { loopArray(array); }
           else {
+            console.log("in _safeArrayPost, toRetry was: " + JSON.stringify(toRetry));
             callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
         });
       };
@@ -608,7 +626,12 @@ var Offlinify = (function() {
 
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
+      //theNewObjStore.data = []; // Temporary fix
+      //theNewObjStore.data = JSON.stringify(theNewObjStore.data);
+      //theNewObjStore.data = [theNewObjStore.data];
+      theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
       objStore.put(theNewObjStore).onsuccess = function() {
+        console.log("Put was successful!!!!!");
         callback();
         return;
       }
