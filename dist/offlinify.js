@@ -87,51 +87,28 @@ var Offlinify = (function() {
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, successCallback, errorCallback) {
-
-      var deferredFunction = function(args) {
-        var obj = args.obj;
-        var store = args.store;
-        var successCallback = args.successCallback;
-        var errorCallback = args.errorCallback;
-
-        console.log("store was: " + store + " and obj was: " + JSON.stringify(obj));
-
-        if(_getObjStore(store) === undefined) {
-          console.log("for obj: " + JSON.stringify(obj) + " an error should be thrown: ");
-          console.error(); return;
-        } else {
-          console.log("for obj: " + JSON.stringify(obj) + " an objStore was apparently found.");
-        }
+      deferIfSyncing(function() {
+        if(!checkIfObjectStoreExists(store)) return;
         _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
         if(obj.hasOwnProperty("syncState")) {
           if(obj.syncState > 0) { obj.syncState = 2; }
         } else {
           obj = _.cloneDeep(obj);
           obj.syncState = 0;
-          console.log("branch which should set a UUID is being called.");
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
-          console.log("The object is now: " + JSON.stringify(obj));
         }
-        console.log("Top of the success callback area");
         obj.successCallback = successCallback;
         obj.errorCallback = errorCallback;
-        console.log("Got to the bottom bit!!!");
         _patchLocal(obj, store, function(response) {
           if(pushSync) sync(_notifyObservers);
         });
-      };
-
-      deferIfSyncing({ "deferredFunction": deferredFunction, "args": { "obj": obj, "store": store, "successCallback": successCallback, "errorCallback": errorCallback }});
-
+      });
     };
 
     // Wraps up the data and queues the callback when required:
     function wrapData(store, callback) {
-      if(_getObjStore(store) === undefined) {
-        console.error("objStore '" + store + "' does not exist."); return {}
-      };
-      var deferredFunction = function(callback) {
-        // Only wrap data if an original wrapper was specified:
+      deferIfSyncing(function() {
+        if(!checkIfObjectStoreExists(store)) return;
         if(_getObjStore(store).originalWrapper !== undefined) {
           var originalWrapper = _getObjStore(store).originalWrapper;
           var currentData = _getObjStore(store).data;
@@ -140,22 +117,15 @@ var Offlinify = (function() {
         } else {
           callback(_getObjStore(store).data);
         }
-      }
+      });
+    };
 
-      if(syncInProgress) {
-        callbackWhenSyncFinished.push({"callbackFunction": deferredFunction, "callback": callback});
-      } else {
-
-        if(!firstSynced) {
-          _establishIDB(function() {
-            sync(function(response) {
-              deferredFunction(callback); // call after first sync
-            });
-          })
-        } else {
-          deferredFunction(callback); // call immediately.
-        }
+    function checkIfObjectStoreExists(storeName) {
+      if(!_getObjStore(storeName)) {
+        console.error("objStore '" + storeName + "' does not exist.");
+        return false;
       }
+      return true;
     };
 
     /* --------------- Observer Pattern --------------- */
@@ -164,10 +134,6 @@ var Offlinify = (function() {
     function subscribe(ctrlCallback) {
        _establishIDB(function() {
          observerCallbacks.push(ctrlCallback);
-         if(!firstSynced) return;
-         sync(function(response) {
-           ctrlCallback(response);
-         });
        });
      };
 
@@ -180,8 +146,13 @@ var Offlinify = (function() {
     /* --------------- Synchronisation --------------- */
 
     function deferIfSyncing(deferredFunction) {
-      if(!syncInProgress && setupState == 2) deferredFunction.deferredFunction(deferredFunction.args);
-      else deferredFunctions.push(deferredFunction);
+      if(!syncInProgress && setupState == 2) deferredFunction();
+      else {deferredFunctions.push(deferredFunction); console.warn("Defer is in progress. "); }
+    };
+
+    function callDeferredFunctions() {
+      _.forEach(deferredFunctions, function(item) { item(); });
+      deferredFunctions = [];
     };
 
     // Restores local state on first sync, or patches local and remote changes:
@@ -212,7 +183,7 @@ var Offlinify = (function() {
 
     function syncFinished() {
       console.log("Sync finished.");
-      // Call each of the callbacks in turn.
+      // Call each of the callbacks in turn.``
       // Set syncInProgress back to false!
       console.log("callback queue length was: " + callbackWhenSyncFinished.length);
       _.forEach(callbackWhenSyncFinished, function(item) {
@@ -220,12 +191,7 @@ var Offlinify = (function() {
       });
       callbackWhenSyncFinished = [];
 
-      console.log("deferredFunctions length is: " + deferredFunctions.length);
-      _.forEach(deferredFunctions, function(item) {
-        console.log("For each loop");
-        item.deferredFunction(item.args);
-      });
-      deferredFunctions = [];
+      callDeferredFunctions();
 
       console.log("serviceDB is now: " + JSON.stringify(serviceDB));
 
@@ -436,7 +402,7 @@ var Offlinify = (function() {
     };
 
     function _getObjStore(name) {
-      return _.find( serviceDB, {"name": name} );
+      return _.find( serviceDB, {"name": name} ) || false;
     };
 
     function _patchServiceDB(data, store) {
