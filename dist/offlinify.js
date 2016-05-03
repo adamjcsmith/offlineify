@@ -53,7 +53,7 @@ var Offlinify = (function() {
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
       if(setupState == 0) setupState = 1; // Support re-init
-      startProcess();
+      startSyncProcess();
     };
 
     function objectStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
@@ -81,7 +81,7 @@ var Offlinify = (function() {
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, successCallback, errorCallback) {
       deferIfSyncing(function() {
-        if(!checkIfObjectStoreExists(store)) return;
+        if(!checkIfObjectStoreExists(store)) { return; errorCallback("Incorrect ObjectStore."); }
         _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
         if(obj.hasOwnProperty("syncState")) {
           if(obj.syncState > 0) { obj.syncState = 2; }
@@ -431,15 +431,15 @@ var Offlinify = (function() {
         sendData(array[x],url,function(response) {
           if(x >= array.length) return;
 
-          if(response.status == 200) {
+          if(response == 200) {
             toPop.push(array[x]);
             if(array[x].successCallback) array[x].successCallback();
-          } else if(response.status == 0) {
+          } else if(response == 0) {
             noChange.push(array[x]);
           } else {
-            if(_.find(retryOnResponseCodes, response.status) !== undefined) {
+            if(_.find(retryOnResponseCodes, response) !== undefined) {
               toRetry.push(array[x]);
-            } else if(_.find(replaceOnResponseCodes, response.status) !== undefined) {
+            } else if(_.find(replaceOnResponseCodes, response) !== undefined) {
               toReplace.push(array[x]);
               if(array[x].errorCallback) array[x].errorCallback(response); // Return entire response
             } else {
@@ -552,7 +552,14 @@ var Offlinify = (function() {
         delete array[i].$$hashKey;
       }
       return array;
-    }
+    };
+
+    function wipe() {
+      function doWipe() {
+        indexedDB.deleteDatabase(indexedDBDatabaseName);
+      }
+      deferIfSyncing(doWipe);
+    };
 
     /* --------------- Diagnostics --------------- */
 
@@ -608,7 +615,7 @@ var Offlinify = (function() {
     /* --------------- Sync Loop -------------- */
 
     // Called by config to denote end of setup:
-    function startProcess() {
+    function startSyncProcess() {
       _establishIDB(function() {
         (function syncLoop() {
           setTimeout(function() {

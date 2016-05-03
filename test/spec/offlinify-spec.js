@@ -70,7 +70,7 @@ describe('objStore Declaration', function() {
   });
 });
 
-describe('Initialise', function() {
+describe('Initialisation', function() {
 
   /* Spy on console errors */
   beforeEach(function(){
@@ -90,14 +90,29 @@ describe('Object Creation', function() {
     spyOn(console, 'error');
   });
 
-  it('should be rejected with an unknown objStore', function() {
-    Offlinify.objectUpdate({}, "unknown", null, null);
-    expect(console.error).toHaveBeenCalled();
+  beforeEach(function(done) {
+    Offlinify.objectUpdate({"test":"this is a test"}, testName,
+      function() { done(); console.log("Done callback triggered!"); },
+      function() { done.fail("Fail callback was triggered."); });
   });
 
+
+  it('should have created an object', function() {
+    done();
+  });
+
+/*
+  it('should be rejected with an unknown objStore', function() {
+    Offlinify.objectUpdate({}, "unknown", function() { console.log("Synced"); }, function() { console.log("error"); });
+    expect(console.error).toHaveBeenCalled();
+  });
+*/
+
+  /*
   it('should be accepted with valid arguments', function(done) {
     Offlinify.objectUpdate(testObject, testName, function() { console.log("Synced"); }, function() { console.log("error"); });
     expect(console.error).not.toHaveBeenCalled();
   });
+  */
 
 });
