@@ -589,6 +589,7 @@ var Offlinify = (function() {
     function wipe() {
       function doWipe() {
         indexedDB.deleteDatabase(indexedDBDatabaseName);
+        serviceDB = [];
       }
       deferIfSyncing(doWipe);
     };
@@ -668,7 +669,8 @@ var Offlinify = (function() {
       subscribe: subscribe,
       init: init,
       objectStore: objectStore,
-      objStoreMap: objStoreMap
+      objStoreMap: objStoreMap,
+      wipe: wipe
     }
 
   }());

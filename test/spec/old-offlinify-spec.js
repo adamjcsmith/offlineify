@@ -97,8 +97,9 @@ describe('Object API', function() {
         function() { done.fail("Fail callback was triggered."); });
     });
 
-    it('should accept a valid object', function() {
-      expect(receivedObj.test).toEqual(sentObj.test);
+    it('should accept a valid object into IndexedDB', function() {
+      expect(receivedObj.test).toEqual(sent
+        Obj.test);
     });
 
   });
@@ -115,11 +116,11 @@ describe('Object API', function() {
         function() { done(); });
     });
 
-    it('should reject an empty object', function() {
+    it('should reject an incorrect objStore', function() {
       expect(console.error).toHaveBeenCalled();
     });
 
-  })
+  });
 
 
   describe('Read Tests', function() {
