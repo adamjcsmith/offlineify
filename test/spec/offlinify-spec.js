@@ -83,23 +83,87 @@ describe('Initialisation', function() {
   });
 });
 
-describe('Object Creation', function() {
+describe('Object API', function() {
+
+  var receivedObj;
+
+  describe('Successful object creations expected', function() {
+    var sentObj = {"test":"this is a test"};
+
+    beforeEach(function(done) {
+      Offlinify.objectUpdate(sentObj, testName,
+        function(data) { receivedObj = data; done(); },
+        function(data) { console.log("Synchronised with remote") },
+        function() { done.fail("Fail callback was triggered."); });
+    });
+
+    it('should accept a valid object', function() {
+      expect(receivedObj.test).toEqual(sentObj.test);
+    });
+
+  });
+
+  describe('Unsuccessful object creations expected', function() {
+
+    var sentObj = {"test":"this is a test"};
+
+    beforeEach(function(done) {
+      spyOn(console, 'error');
+      Offlinify.objectUpdate(sentObj, "etc",
+        function(data) { },
+        function(data) { console.log("Synchronised with remote") },
+        function() { done(); });
+    });
+
+    it('should reject an empty object', function() {
+      expect(console.error).toHaveBeenCalled();
+    });
+
+  })
+
+
+  describe('Read Tests', function() {
+    var receivedObjStoreData;
+
+    beforeEach(function(done) {
+      Offlinify.wrapData(testName, function(data) {
+        receivedObjStoreData = data;
+        done();
+      });
+    });
+
+    it('should retrieve the object from the objStore', function() {
+      expect(_.find(receivedObjStoreData, { id : receivedObj.id })).toBeDefined();
+    });
+
+    describe('Update Tests', function() {
+
+      console.log(JSON.stringify(receivedObj));
+
+      var updatedObject = { "id": receivedObj.id, "newData": "This is new data." };
+
+      beforeEach(function(done) {
+        Offlinify.objectUpdate(updatedObject, testName,
+          function(data) { console.log("Received the update!!!"); receivedObj = data; done(); },
+          function() { done.fail("Fail callback was triggered."); });
+      });
+
+      it('should update an existing object', function() {
+        expect(receivedObj.newData).toEqual(updatedObject.newData);
+      });
+
+    });
+
+
+
+  });
+
 
   /* Spy on console errors */
-  beforeEach(function(){
-    spyOn(console, 'error');
-  });
+  //beforeEach(function(){
+    //spyOn(console, 'error');
+  //});
 
-  beforeEach(function(done) {
-    Offlinify.objectUpdate({"test":"this is a test"}, testName,
-      function() { done(); console.log("Done callback triggered!"); },
-      function() { done.fail("Fail callback was triggered."); });
-  });
-
-
-  it('should have created an object', function() {
-    done();
-  });
 
 /*
   it('should be rejected with an unknown objStore', function() {

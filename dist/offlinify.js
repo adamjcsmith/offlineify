@@ -79,9 +79,9 @@ var Offlinify = (function() {
     /* --------------- Create/Update and Retrieve --------------- */
 
     // Filters create or update ops by queue state:
-    function objectUpdate(obj, store, successCallback, errorCallback) {
+    function objectUpdate(obj, store, onAccept, onSync, onError) {
       deferIfSyncing(function() {
-        if(!checkIfObjectStoreExists(store)) { return; errorCallback("Incorrect ObjectStore."); }
+        if(!checkIfObjectStoreExists(store)) { onError("Incorrect ObjectStore."); return; }
         _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
         if(obj.hasOwnProperty("syncState")) {
           if(obj.syncState > 0) { obj.syncState = 2; }
@@ -90,13 +90,43 @@ var Offlinify = (function() {
           obj.syncState = 0;
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
         }
-        obj.successCallback = successCallback;
-        obj.errorCallback = errorCallback;
+        obj.onAcceptCallback = onAccept;
+        obj.onSyncCallback = onSync;
+        obj.onErrorCallback = onError;
         _patchLocal(obj, store, function(response) {
           if(pushSync) sync(_notifyObservers);
+
+          // Test whether object was added:
+          objectExistsInIDB(obj, store, function(response) {
+            if(response !== undefined) onAccept(response);
+            else onError();
+          });
+
         });
       });
     };
+
+    function objectExistsInIDB(obj, store, callback) {
+      _getIDB(function(data) {
+        console.log("objectExistsInIDB called.");
+        var objStoreFromIDB = _.find(data, {name: store});
+        if(objStoreFromIDB === undefined) { return undefined; }
+        var objCandidate = _.find(objStoreFromIDB.data, function(o) {
+          var idbUUID = _.get(o, objStoreFromIDB.primaryKeyProperty);
+          var serviceUUID = _.get(obj, _getObjStore(store).primaryKeyProperty);
+          return idbUUID == serviceUUID;
+        });
+        console.log("objCandidate was: " + JSON.stringify(objCandidate));
+        if(objCandidate !== undefined) {
+          console.log("returning objCandidate");
+           callback(objCandidate);
+        }
+        else {
+          console.log("returning undefined");
+          callback(undefined);
+        }
+      });
+    }
 
     // Wraps up the data and queues the callback when required:
     function wrapData(store, callback) {
@@ -431,9 +461,11 @@ var Offlinify = (function() {
         sendData(array[x],url,function(response) {
           if(x >= array.length) return;
 
+          console.log("THe response was: " + response);
+
           if(response == 200) {
             toPop.push(array[x]);
-            if(array[x].successCallback) array[x].successCallback();
+            if(array[x].onSyncCallback) array[x].onSyncCallback(array[x]);
           } else if(response == 0) {
             noChange.push(array[x]);
           } else {
@@ -441,7 +473,7 @@ var Offlinify = (function() {
               toRetry.push(array[x]);
             } else if(_.find(replaceOnResponseCodes, response) !== undefined) {
               toReplace.push(array[x]);
-              if(array[x].errorCallback) array[x].errorCallback(response); // Return entire response
+              if(array[x].onErrorCallback) array[x].onErrorCallback(response); // Return entire response
             } else {
               toRetry.push(array[x]); // for now, retry on unknown code.
             }
