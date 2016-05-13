@@ -204,6 +204,7 @@ var Offlinify = (function() {
 
     function syncFinished() {
       console.log("Sync finished.");
+      setupState = 2; // finished first sync at least, guaranteed.
       callDeferredFunctions();
       syncInProgress = false;
     };
@@ -587,11 +588,13 @@ var Offlinify = (function() {
     };
 
     function wipe() {
-      function doWipe() {
-        indexedDB.deleteDatabase(indexedDBDatabaseName);
-        serviceDB = [];
-      }
-      deferIfSyncing(doWipe);
+      deferIfSyncing(wipeImmediately);
+    }
+
+    function wipeImmediately() {
+      indexedDB.deleteDatabase(indexedDBDatabaseName);
+      serviceDB = [];
+      console.warn("Database wiped.");
     };
 
     /* --------------- Diagnostics --------------- */
@@ -670,7 +673,8 @@ var Offlinify = (function() {
       init: init,
       objectStore: objectStore,
       objStoreMap: objStoreMap,
-      wipe: wipe
+      wipe: wipe,
+      wipeImmediately: wipeImmediately
     }
 
   }());
