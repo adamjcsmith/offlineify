@@ -210,6 +210,8 @@ var Offlinify = (function() {
     };
 
     // Patches remote edits to serviceDB + IndexedDB:
+
+/*
     function _patchRemoteChanges(callback) {
 
       // Reject if remote disabled, or there are no data models:
@@ -225,15 +227,48 @@ var Offlinify = (function() {
         }
 
         // Get the remote records, patch locally if successful.
-        _getRemoteRecords(serviceDB[counter].name, function(response) {
+        _getRemoteRecords(serviceDB[counter].name, 0, function(response, etc) {
            if(response.status != 200) { counter++; doLoop(); return; }
            _patchLocal(response.data, serviceDB[counter].name, function() {
              counter++;
              doLoop();
            });
         });
+
       })();
+
     };
+*/
+
+
+    // New patchRemoteChanges.
+
+    function _patchRemoteChanges(callback) {
+
+      if( !allowRemote || serviceDB.length == 0) { callback(); return; }
+
+      var counter = 0;
+
+      function checkIfFinished() {
+        counter++;
+        if(counter == serviceDB.length) {
+          lastChecked = _generateTimestamp;
+          callback();
+          return;
+        }
+      }
+
+      for(var i=0; i<serviceDB.length; i++) {
+          _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
+            if(response.status != 200) { checkIfFinished(); return; }
+            console.log("serviceDBIndex was: " + serviceDBIndex);
+            _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
+              checkIfFinished();
+            })
+          });
+      }
+    }
+
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
@@ -277,6 +312,7 @@ var Offlinify = (function() {
     // Sort elements by a given property:
     function _sortElements(records, property) {
       return _.reverse(_.sortBy(records, function(o) {
+        if(_.get(o, property) == undefined) console.error("Timestamp property wasn't defined for object: " + JSON.stringify(o));
         return new Date(_.get(o, property)).toISOString();
       }));
     }
@@ -432,19 +468,19 @@ var Offlinify = (function() {
 
     /* --------------- Remote --------------- */
 
-    function _getRemoteRecords(store, callback) {
+    function _getRemoteRecords(store, originalIndex, callback) {
       receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
         if(response.data != []) {
           if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
           // Unprefix data:
           if(_getObjStore(store).dataPrefix !== undefined) {
             var unwrappedData = _unwrapData(response.data, store);
-            callback({data: _resetSyncState(unwrappedData), status: 200});
+            callback({data: _resetSyncState(unwrappedData), status: 200}, originalIndex);
           } else {
-            callback({data: _resetSyncState(response.data), status: 200});
+            callback({data: _resetSyncState(response.data), status: 200}, originalIndex);
           }
         } else {
-          callback({data: [], status: response.status});
+          callback({data: [], status: response.status}, originalIndex);
         }
       });
     };
