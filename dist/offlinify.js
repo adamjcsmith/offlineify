@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 23; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 40; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -134,11 +134,11 @@ var Offlinify = (function() {
         if(!checkIfObjectStoreExists(store)) return;
         if(_getObjStore(store).originalWrapper !== undefined) {
           var originalWrapper = _getObjStore(store).originalWrapper;
-          console.log("originalWrapper, before data manipulation, was: " + JSON.stringify(originalWrapper));
+          //console.log("originalWrapper, before data manipulation, was: " + JSON.stringify(originalWrapper));
           var currentData = _getObjStore(store).data;
           _.set(originalWrapper, _getObjStore(store).readDataPrefix, currentData);
-          console.log("the originalWrapper being sent back is: " + JSON.stringify(originalWrapper));
-          console.log("the currentData in wrapData was: " + JSON.stringify(currentData));
+          //console.log("the originalWrapper being sent back is: " + JSON.stringify(originalWrapper));
+          //console.log("the currentData in wrapData was: " + JSON.stringify(currentData));
           callback(originalWrapper);
         } else {
           callback(_getObjStore(store).data);
@@ -230,8 +230,7 @@ var Offlinify = (function() {
 
       for(var i=0; i<serviceDB.length; i++) {
           _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
-            if(response.response != 200) { checkIfFinished(); return; }
-            console.log("serviceDBIndex was: " + serviceDBIndex);
+            if(response.status != 200) { checkIfFinished(); return; }
             _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
               checkIfFinished();
             })
@@ -553,7 +552,7 @@ var Offlinify = (function() {
       _bulkStripHashKeys(_getObjStore(store).data); // Strip Angular-like hashkeys
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
-      console.log(theNewObjStore);
+      //console.log(theNewObjStore);
       //var theNewObjStore = JSON.parse(JSON.stringify(_getObjStore(store)));
       theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
       objStore.put(theNewObjStore).onsuccess = function() {
