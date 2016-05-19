@@ -18,7 +18,7 @@ var Offlinify = (function() {
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
-    var indexedDBVersionNumber = 40; /* Increment this to wipe and reset IndexedDB */
+    var indexedDBVersionNumber = 42; /* Increment this to wipe and reset IndexedDB */
     var objectStoreName = "offlinify-objectStore";
 
     /* --------------- Offlinify Internals --------------- */
@@ -37,6 +37,7 @@ var Offlinify = (function() {
     // Determine IndexedDB Support
     var indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB || window.shimIndexedDB;
     if(!allowIndexedDB) indexedDB = null;
+    var contextStoreObjectStoreName = "offlinify-contextStore";
 
     /* --------------- Initial Configuration --------------- */
 
@@ -84,11 +85,28 @@ var Offlinify = (function() {
       deferIfSyncing(function() {
         if(!checkIfObjectStoreExists(store)) { onError("Incorrect ObjectStore."); return; }
         _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
-        if(obj.hasOwnProperty("syncState")) {
-          if(obj.syncState > 0) { obj.syncState = 2; }
+
+        if(!obj.hasOwnProperty("properties")) {
+          obj.properties = {};
+        }
+
+        /*
+        if(obj.properties.syncState !== undefined) {
+          console.log("syncState was detected using the new method.");
         } else {
+          console.log("syncState was still not detected.");
+        }
+        */
+
+        console.log("The object running through objectUpdate is: " + JSON.stringify(obj));
+
+        if(obj.properties.hasOwnProperty("syncState")) {
+          console.log("objectUpdate: update operation detected.");
+          if(obj.properties.syncState > 0) { obj.properties.syncState = 2; }
+        } else {
+          console.log("objectUpdate: create operation detected.");
           obj = _.cloneDeep(obj);
-          obj.syncState = 0;
+          obj.properties.syncState = 0;
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
         }
         obj.onSyncCallback = '(' + onSync + ')'; // Convert to string.
@@ -107,7 +125,7 @@ var Offlinify = (function() {
     };
 
     function objectExistsInIDB(obj, store, callback) {
-      _getIDB(function(data) {
+      _getIDB(objectStoreName, function(data) {
         console.log("objectExistsInIDB called.");
         var objStoreFromIDB = _.find(data, {name: store});
         if(objStoreFromIDB === undefined) { return undefined; }
@@ -256,7 +274,7 @@ var Offlinify = (function() {
     // Puts IndexedDB store into scope:
     function _restoreLocalState(callback) {
       if(!_IDBSupported()) { callback(); return; }
-      _getIDB(function(idbRecords) {
+      _getIDB(objectStoreName, function(idbRecords) {
         // <--- Do objStore-based upgrading here --->
         // Update lastUpdated using each object store:
         for(var i=0; i<idbRecords.length; i++) _setLastUpdated(idbRecords[i]);
@@ -288,7 +306,7 @@ var Offlinify = (function() {
 
     // Divide into non-queued and queued items:
     function _separateByQueueState(records) {
-      return {  nonQueue: _.filter(records, {syncState: 1}), queue: _.filter(records, function(o) { return o.syncState != 1; }) };
+      return {  nonQueue: _.filter(records, {properties: {syncState: 1}}), queue: _.filter(records, function(o) { return o.properties.syncState != 1; }) };
     }
 
     // Replace lastChecked if a data property has a time greater than it
@@ -320,7 +338,7 @@ var Offlinify = (function() {
 
     // Divide into create and update operation queues:
     function _separateCreateUpdateOperations(records) {
-      return { creates: _.filter(records, { "syncState" : 0 }), updates: _.filter(records, { "syncState" : 2 }) };
+      return { creates: _.filter(records, { properties: {syncState : 0 }}), updates: _.filter(records, { properties: {syncState : 2 }}) };
     }
 
     function _processQueueAfterRemoteResponse(createResponse, updateResponse, objStoreID) {
@@ -431,7 +449,7 @@ var Offlinify = (function() {
     }
 
     function _resetSyncState(records) {
-      for(var i=0; i<records.length; i++) records[i].syncState = 1;
+      for(var i=0; i<records.length; i++) records[i].properties.syncState = 1;
       return records;
     };
 
@@ -514,7 +532,11 @@ var Offlinify = (function() {
         if(db.objectStoreNames.contains(objectStoreName)) {
           db.deleteObjectStore(objectStoreName);
         }
+        if(db.objectStoreNames.contains(contextStoreObjectStoreName)) {
+          db.deleteObjectStore(contextStoreObjectStoreName);
+        }
         var offlineItems = db.createObjectStore(objectStoreName, { keyPath: "name", autoIncrement: false } );
+        var contextStore = db.createObjectStore(contextStoreObjectStoreName, {keyPath: "key", autoIncrement: false });
         //var dateIndex = offlineItems.createIndex("byDate", timestampProperty, {unique: false});
         idb = db;
       };
@@ -526,9 +548,10 @@ var Offlinify = (function() {
     };
 
     // Get the entire IndexedDB image:
-    function _getIDB(callback) {
-      var transaction = _newIDBTransaction();
-      var objStore = transaction.objectStore(objectStoreName);
+    function _getIDB(storeName, callback) {
+      var transaction = _newIDBTransaction(storeName);
+      console.log("objectStores were: " + JSON.stringify(idb.objectStoreNames));
+      var objStore = transaction.objectStore(storeName);
       var keyRange = IDBKeyRange.lowerBound(0);
       //var cursorRequest = objStore.index('byDate').openCursor(keyRange);
       var cursorRequest = objStore.openCursor(keyRange);
@@ -550,7 +573,7 @@ var Offlinify = (function() {
       // Reject request if no store by that name exists:
       if(!checkIfObjectStoreExists(store)) { callback(); return; }
       _bulkStripHashKeys(_getObjStore(store).data); // Strip Angular-like hashkeys
-      var objStore = _newIDBTransaction().objectStore(objectStoreName);
+      var objStore = _newIDBTransaction(objectStoreName).objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
       //console.log(theNewObjStore);
       //var theNewObjStore = JSON.parse(JSON.stringify(_getObjStore(store)));
@@ -561,8 +584,8 @@ var Offlinify = (function() {
       }
     };
 
-    function _newIDBTransaction() {
-      return idb.transaction([objectStoreName], 'readwrite');
+    function _newIDBTransaction(storeName) {
+      return idb.transaction([storeName], 'readwrite');
     };
 
     /* --------------- Utilities --------------- */
@@ -610,6 +633,35 @@ var Offlinify = (function() {
       serviceDB = [];
       console.warn("Database wiped.");
     };
+
+    /* --------------- ContextStore API --------------- */
+
+    function getContext(key, callback) {
+      deferIfSyncing(
+        function() {
+          _getIDB(contextStoreObjectStoreName, function(data) {
+            console.log("Accessed contextStore objStore.");
+
+            // With the data, find() the object with the key:
+            callback(_.find(data, {"key": key}));
+          });
+        }
+      );
+    }
+
+    function saveContext(contextObject, callback) {
+      deferIfSyncing(
+        function() {
+
+          var objStore = _newIDBTransaction(contextStoreObjectStoreName).objectStore(contextStoreObjectStoreName);
+          objStore.put(contextObject).onsuccess = function() {
+            callback();
+            return;
+          }
+
+        }
+      );
+    }
 
     /* --------------- Diagnostics --------------- */
 
@@ -705,7 +757,9 @@ var Offlinify = (function() {
       objectStore: objectStore,
       objStoreMap: objStoreMap,
       wipe: wipe,
-      wipeImmediately: wipeImmediately
+      wipeImmediately: wipeImmediately,
+      getContext: getContext,
+      saveContext: saveContext
     }
 
   }());
