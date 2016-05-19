@@ -56,7 +56,7 @@ var Offlinify = (function() {
       startSyncProcess();
     };
 
-    function objectStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, dataPrefix) {
+    function objectStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, readDataPrefix, postDataPrefix) {
       var newObjStore = {};
       if(name === undefined || primaryKeyProp === undefined || timestampProp === undefined || readURL === undefined || createURL === undefined) {
         console.error("Object store declaration has invalid arguments.");
@@ -71,7 +71,8 @@ var Offlinify = (function() {
       newObjStore.readURL = readURL;
       newObjStore.createURL = createURL;
       newObjStore.updateURL = updateURL || createURL;
-      if(dataPrefix) newObjStore.dataPrefix = dataPrefix;
+      if(readDataPrefix) newObjStore.readDataPrefix = readDataPrefix;
+      if(postDataPrefix) newObjStore.postDataPrefix = postDataPrefix;
       newObjStore.data = [];
       serviceDB.push(newObjStore);
     };
@@ -90,9 +91,8 @@ var Offlinify = (function() {
           obj.syncState = 0;
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
         }
-        obj.onAcceptCallback = onAccept;
-        obj.onSyncCallback = onSync;
-        obj.onErrorCallback = onError;
+        obj.onSyncCallback = '(' + onSync + ')'; // Convert to string.
+        obj.onErrorCallback = '(' + onError + ')';
         _patchLocal(obj, store, function(response) {
           if(pushSync) sync(_notifyObservers);
 
@@ -134,8 +134,11 @@ var Offlinify = (function() {
         if(!checkIfObjectStoreExists(store)) return;
         if(_getObjStore(store).originalWrapper !== undefined) {
           var originalWrapper = _getObjStore(store).originalWrapper;
+          console.log("originalWrapper, before data manipulation, was: " + JSON.stringify(originalWrapper));
           var currentData = _getObjStore(store).data;
-          _.set(originalWrapper, _getObjStore(store).dataPrefix, currentData);
+          _.set(originalWrapper, _getObjStore(store).readDataPrefix, currentData);
+          console.log("the originalWrapper being sent back is: " + JSON.stringify(originalWrapper));
+          console.log("the currentData in wrapData was: " + JSON.stringify(currentData));
           callback(originalWrapper);
         } else {
           callback(_getObjStore(store).data);
@@ -209,40 +212,7 @@ var Offlinify = (function() {
       syncInProgress = false;
     };
 
-    // Patches remote edits to serviceDB + IndexedDB:
-
-/*
-    function _patchRemoteChanges(callback) {
-
-      // Reject if remote disabled, or there are no data models:
-      if( !allowRemote || serviceDB.length == 0 ) { callback(); return; }
-
-      var counter = 0;
-
-      (function doLoop() {
-        if(serviceDB.length == counter) {
-          lastChecked = _generateTimestamp();
-          callback();
-          return;
-        }
-
-        // Get the remote records, patch locally if successful.
-        _getRemoteRecords(serviceDB[counter].name, 0, function(response, etc) {
-           if(response.status != 200) { counter++; doLoop(); return; }
-           _patchLocal(response.data, serviceDB[counter].name, function() {
-             counter++;
-             doLoop();
-           });
-        });
-
-      })();
-
-    };
-*/
-
-
-    // New patchRemoteChanges.
-
+    // Patches new changes to serviceDB + indexedDB:
     function _patchRemoteChanges(callback) {
 
       if( !allowRemote || serviceDB.length == 0) { callback(); return; }
@@ -252,7 +222,7 @@ var Offlinify = (function() {
       function checkIfFinished() {
         counter++;
         if(counter == serviceDB.length) {
-          lastChecked = _generateTimestamp;
+          lastChecked = _generateTimestamp();
           callback();
           return;
         }
@@ -260,7 +230,7 @@ var Offlinify = (function() {
 
       for(var i=0; i<serviceDB.length; i++) {
           _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
-            if(response.status != 200) { checkIfFinished(); return; }
+            if(response.response != 200) { checkIfFinished(); return; }
             console.log("serviceDBIndex was: " + serviceDBIndex);
             _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
               checkIfFinished();
@@ -337,8 +307,8 @@ var Offlinify = (function() {
       (function reduceObjectStore() {
         if(x == serviceDB.length) { callback(); return; } // Return on empty queue.
         var queue = _separateCreateUpdateOperations(serviceDB[x].data);
-        _safeArrayPost(queue.creates, serviceDB[x].createURL, function(createResponse) {
-          _safeArrayPost(queue.updates, serviceDB[x].updateURL, function(updateResponse) {
+        _safeArrayPost(queue.creates, serviceDB[x].createURL, serviceDB[x].name, function(createResponse) {
+          _safeArrayPost(queue.updates, serviceDB[x].updateURL, serviceDB[x].name, function(updateResponse) {
             var itemsToPatch = _processQueueAfterRemoteResponse(createResponse, updateResponse, x);
             _patchLocal(itemsToPatch, serviceDB[x].name, function(response) {
               x++;
@@ -470,23 +440,23 @@ var Offlinify = (function() {
 
     function _getRemoteRecords(store, originalIndex, callback) {
       receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
-        if(response.data != []) {
+        if(response.data != [] && response.response > 0) {
           if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
           // Unprefix data:
-          if(_getObjStore(store).dataPrefix !== undefined) {
+          if(_getObjStore(store).readDataPrefix !== undefined) {
             var unwrappedData = _unwrapData(response.data, store);
             callback({data: _resetSyncState(unwrappedData), status: 200}, originalIndex);
           } else {
             callback({data: _resetSyncState(response.data), status: 200}, originalIndex);
           }
         } else {
-          callback({data: [], status: response.status}, originalIndex);
+          callback({data: [], status: response.response}, originalIndex);
         }
       });
     };
 
     // Tries to post an array one-by-one; returns successful elements.
-    function _safeArrayPost(array, url, callback) {
+    function _safeArrayPost(array, url, objStoreName, callback) {
       var x = 0;
       var toPop = [];
       var toRetry = [];
@@ -495,14 +465,18 @@ var Offlinify = (function() {
 
       if(array.length == 0) { callback({"toPop": [], "toRetry": [], "toReplace": [], "noChange": []}); return; }
       (function loopArray() {
-        sendData(array[x],url,function(response) {
+        sendData(array[x],url,objStoreName,function(response) {
           if(x >= array.length) return;
 
           console.log("THe response was: " + response);
 
           if(response == 200) {
             toPop.push(array[x]);
-            if(array[x].onSyncCallback) array[x].onSyncCallback(array[x]);
+            if(array[x].onSyncCallback) {
+              console.log("This object would have synchronised!!!!!!!!");
+              var syncCallback = eval(array[x].onSyncCallback);
+              syncCallback(array[x]);
+            }
           } else if(response == 0) {
             noChange.push(array[x]);
           } else {
@@ -510,7 +484,10 @@ var Offlinify = (function() {
               toRetry.push(array[x]);
             } else if(_.find(replaceOnResponseCodes, response) !== undefined) {
               toReplace.push(array[x]);
-              if(array[x].onErrorCallback) array[x].onErrorCallback(response); // Return entire response
+              if(array[x].onErrorCallback) {
+                var errCallback = eval(array[x].onErrorCallback);
+                errCallback(response); // Return entire response
+              }
             } else {
               toRetry.push(array[x]); // for now, retry on unknown code.
             }
@@ -576,6 +553,8 @@ var Offlinify = (function() {
       _bulkStripHashKeys(_getObjStore(store).data); // Strip Angular-like hashkeys
       var objStore = _newIDBTransaction().objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
+      console.log(theNewObjStore);
+      //var theNewObjStore = JSON.parse(JSON.stringify(_getObjStore(store)));
       theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
       objStore.put(theNewObjStore).onsuccess = function() {
         callback();
@@ -591,9 +570,9 @@ var Offlinify = (function() {
 
     function _unwrapData(data, store) {
       var objStore = _getObjStore(store);
-      var nestedData = _.get(data, _getObjStore(store).dataPrefix);
+      var nestedData = _.get(data, _getObjStore(store).readDataPrefix) || []; // handle empty data. - this returns undefined on no remote connection
       objStore.originalWrapper = data;
-      _.set(objStore.originalWrapper, objStore.dataPrefix, []);
+      _.set(objStore.originalWrapper, objStore.readDataPrefix, []);
       return nestedData;
     };
 
@@ -652,6 +631,7 @@ var Offlinify = (function() {
       request.onload = function() {
         if (request.status >= 200 && request.status < 400) {
           // 2xx - 3xx response:
+          console.log("in receiveData, the request.status was: " + request.status);
           callback({ response: request.status, data: request.response });
         } else {
           // 4xx - 5xx response:
@@ -669,10 +649,26 @@ var Offlinify = (function() {
       request.send();
     };
 
-    function sendData(data, url, callback) {
+    function sendData(data, url, objStoreName, callback) {
+      console.log("Send data function was called.");
+      console.log("document.cookie is: " + document.cookie.replace('xcsrfcookie=', ''));
+
+      if(_getObjStore(objStoreName).postDataPrefix !== undefined) {
+        var prefix = _getObjStore(objStoreName).postDataPrefix;
+        var tempData = _.cloneDeep(data);
+        var tempObj = {};
+        //console.log("data was: " + JSON.stringify(tempObj));
+        data = [];
+        tempObj[prefix] = JSON.stringify(tempData); // EXPERIMENTAL!!!!!!!!!!!!!
+        //console.log("New data with prefix through sendData is: " + JSON.stringify(tempObj));
+        data = tempObj;
+      }
+
       var request = new XMLHttpRequest();
       request.open('POST', url, true);
       request.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+      request.setRequestHeader("X-CSRFToken", document.cookie.replace('xcsrfcookie=', ''));
+      console.log("Being sent to the server: " + JSON.stringify(data));
       request.send(JSON.stringify(data));
       request.onreadystatechange = function() {
         callback(request.status); // Return status and defer logic until later
