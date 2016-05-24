@@ -1,5 +1,3 @@
-'use strict';
-
 var Offlinify = (function() {
 
     /* --------------- Defaults --------------- */
@@ -74,6 +72,7 @@ var Offlinify = (function() {
       newObjStore.updateURL = updateURL || createURL;
       if(readDataPrefix) newObjStore.readDataPrefix = readDataPrefix;
       if(postDataPrefix) newObjStore.postDataPrefix = postDataPrefix;
+
       newObjStore.data = [];
       serviceDB.push(newObjStore);
     };
@@ -89,14 +88,6 @@ var Offlinify = (function() {
         if(!obj.hasOwnProperty("properties")) {
           obj.properties = {};
         }
-
-        /*
-        if(obj.properties.syncState !== undefined) {
-          console.log("syncState was detected using the new method.");
-        } else {
-          console.log("syncState was still not detected.");
-        }
-        */
 
         console.log("The object running through objectUpdate is: " + JSON.stringify(obj));
 
@@ -249,13 +240,55 @@ var Offlinify = (function() {
       for(var i=0; i<serviceDB.length; i++) {
           _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
             if(response.status != 200) { checkIfFinished(); return; }
-            _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
-              checkIfFinished();
-            })
+
+            // Check for model changes:
+            checkForModelChanges(response.data, serviceDB[serviceDBIndex].name, function(result) {
+
+              if(result === true) {
+                // data changed, so reset:
+                console.log("Model change detected for objStore '" + serviceDB[serviceDBIndex].name + "', upgrading...");
+                _patchRemoteChanges(callback); // call again.
+                return;
+              } else {
+                console.log("No model change detected for objStore '" + serviceDB[serviceDBIndex].name + "'")
+                _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
+                  checkIfFinished();
+                });
+              }
+
+            });
+
           });
       }
-    }
+    };
 
+    //
+    function checkForModelChanges(newData, objStoreName, callback) {
+      if(newData.length == 0 || _getObjStore(objStoreName).data.length == 0) {
+        callback(false);
+        return; // nothing to check.
+      }
+
+      var newCandidate = _.cloneDeep(newData[0]);
+      var newCandidateKeys = _.sortBy(_.keys(newCandidate));
+
+      var oldCandidate = _getObjStore(objStoreName).data[0];
+      var oldCandidateKeys = _.sortBy(_.keys(oldCandidate));
+
+      console.log("newCandidateKeys was: " + newCandidateKeys);
+      console.log("and an equivalent oldCandidateKeys was: " + oldCandidateKeys);
+
+      if(!_.isEqual(newCandidateKeys, oldCandidateKeys)) {
+        var theObjStore = _getObjStore(objStoreName);
+        theObjStore.data = []; // remove data.
+        _replaceIDBStore(objStoreName, function() {
+          callback(true);
+        });
+      } else {
+        callback(false);
+      }
+
+    }
 
     // Patches the local storages with a dataset.
     function _patchLocal(data, store, callback) {
@@ -275,13 +308,41 @@ var Offlinify = (function() {
     function _restoreLocalState(callback) {
       if(!_IDBSupported()) { callback(); return; }
       _getIDB(objectStoreName, function(idbRecords) {
-        // <--- Do objStore-based upgrading here --->
-        // Update lastUpdated using each object store:
-        for(var i=0; i<idbRecords.length; i++) _setLastUpdated(idbRecords[i]);
-        if(idbRecords.length > 0) serviceDB = idbRecords;
+
+        // Check for changed objStore declarations:
+        var mergedIDBRecords = upgradeObjStores(idbRecords);
+
+        for(var i=0; i<mergedIDBRecords.length; i++) _setLastUpdated(mergedIDBRecords[i]);
+        if(mergedIDBRecords.length > 0) serviceDB = mergedIDBRecords;
         callback();
       });
     };
+
+    // Compare each loaded objStore with the current declarations:
+    function upgradeObjStores(currentIDBRecords) {
+
+      var idbCopy = _.cloneDeep(currentIDBRecords);
+      for(var i=0; i<serviceDB.length; i++) {
+        var currentEquivalent = _.find(idbCopy, { name: serviceDB[i].name });
+
+        // If an existing representation discovered in IDB then clone:
+        if(currentEquivalent !== undefined) {
+          var idbObjStore = _.cloneDeep(currentEquivalent);
+          idbObjStore.data = serviceDB[i].data;
+          delete idbObjStore.originalWrapper;
+
+          if(!_.isEqual(idbObjStore, serviceDB[i])) {
+            console.log("Updated objStore parameters detected. Upgrading store to: " + JSON.stringify(serviceDB[i]));
+            _.remove(idbCopy, currentEquivalent);
+            idbCopy.push(serviceDB[i]);
+          }
+        } else {
+          idbCopy.push(serviceDB[i]); // add element to IDB if it didn't exist before.
+        }
+
+      }
+      return idbCopy;
+    }
 
     // Get last edited record from each objStore and update lastUpdated:
     function _setLastUpdated(store) {
@@ -718,7 +779,12 @@ var Offlinify = (function() {
       var request = new XMLHttpRequest();
       request.open('POST', url, true);
       request.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-      request.setRequestHeader("X-CSRFToken", document.cookie.replace('xcsrfcookie=', ''));
+
+      /* Get the CSRF token */
+      var reg = new RegExp("xcsrfcookie=([^;]+)");
+      var value = reg.exec(document.cookie);
+
+      request.setRequestHeader("X-CSRFToken", value[0].replace('xcsrfcookie=', ''));
       console.log("Being sent to the server: " + JSON.stringify(data));
       request.send(JSON.stringify(data));
       request.onreadystatechange = function() {
