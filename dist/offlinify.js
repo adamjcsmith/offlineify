@@ -12,7 +12,7 @@ var Offlinify = (function() {
     // Error Config (Response Codes):
     var retryOnResponseCodes = [401,500,502]; /* Keep item (optimistically) on queue */
     var replaceOnResponseCodes = [400,403,404]; /* Delete item from queue, try to replace */
-    var maxRetry = 3; /* Try synchronising retry operations this many times */
+    var maxRetry = 100; /* Try synchronising retry operations this many times */
 
     // IndexedDB Config:
     var indexedDBDatabaseName = "offlinifyDB-2";
