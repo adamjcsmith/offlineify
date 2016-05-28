@@ -6,8 +6,10 @@ significantly utilise asynchronous/ajax connections and require a safeguard
 against intermittent connections, or for web applications which could be used
 fully offline (e.g. with AppCache or Service Workers).
 
+No jQuery needed. An example integration with AngularJS is available at [offlinify-angular](https://github.com/adamjcsmith/offlinify-angular).
+
 ## Prerequisities
-Offlinify requires the Lodash library, JSON-based APIs, ISO-8601 timestamps and UUIDs in order to work (see below). It does not require jQuery. The plugin will work in browsers that support the IndexedDB API ([see browser support here](http://caniuse.com/#feat=indexeddb)).
+Offlinify requires the Lodash library, JSON-based APIs, ISO-8601 timestamps and UUIDs in order to work (see below). It does not require jQuery. The plugin will work in browsers that support the IndexedDB API ([see browser support here](http://caniuse.com/#feat=indexeddb)). It is also strongly recommended that you use IndexedDBShim - Offlinify supports it - but it is optional.
 
 #### Browser Support
 * IE10+ / Edge 11+
@@ -44,6 +46,46 @@ file, like so:
 <script src="offlinify/dist/offlinify.js"></script>
 ```
 After including the .js file, Offlinify will now be a global variable where you can access any of the public API methods, which are detailed below. An example setup is given towards the bottom of this readme file.
+
+## Example Usage
+You first need to declare your object stores, then initialise, then use the data functions. Data handling functions - such as objectUpdate() or wrapData() - will not execute unless the plugin has been initialised.
+
+Below is a simple example. The POST url for the api here would accept a create or update operation. First define an object store, then initialise with no arguments, then use the data.
+
+```
+Offlinify.objectStore('person', 'id', 'timestamp', '/api/get?after=', '/api/post');
+```
+Now that an object store has been declared, we can initialise without any arguments:
+```
+Offlinify.init();
+```
+Finally, we can use the plugin, so let's get the data. The wrapData() function is just akin to executing an ajax request, so let's use it like so:
+```
+Offlinify.wrapData('person', function(data) {
+    console.log("We have data! " + JSON.stringify(data));
+});
+```
+Our data would then be printed to the console, like this:
+```
+1:  We have data! {id: "205c1f82-996f-4d14-9bc1-1055263ab6d7", name: "Adam"}
+```
+Let's try adding a birth year to this person, using objectUpdate. Let's amend our original example to add a birth year to the returned record, then update the record. We need to make some acceptance/synchronisation callbacks too, don't forget.
+```
+Offlinify.wrapData('person', function(data) {
+    data[0].birthYear = 1993;
+    console.log(data[0]);
+    var acceptCallback = function() { console.log("Accepted!"); };
+    var syncCallback = function() { console.log("Synchronised!"); };
+    var errorCallback = function() { console.log("Error. :("); };
+    Offlinify.objectUpdate(data, 'person', acceptCallback, syncCallback, errorCallback);
+});
+```
+This looks fine, so on the console we would get:
+```
+1:  {id: "205c1f82-996f-4d14-9bc1-1055263ab6d7", name: "Adam", birthYear: 1993}
+2:  Accepted!
+3:  Synchronised!
+```
 
 ## API Reference
 
@@ -207,6 +249,10 @@ A small number of Jasmine tests are included in the /test directory. [Jasmine do
 ## Deployment
 
 It is strongly recommended that you install [IndexedDBShim](https://github.com/axemclion/IndexedDBShim) if you implement Offlinify. This is an excellent shim written by Parashuram which uses WebSQL (a pre-IndexedDB form of local storage) as a fallback for some older browsers.
+
+## Integrations
+
+An AngularJS example of how Offlinify can be integrated like a service is available at another repo, [adamjcsmith/offlinify-angular](https://github.com/adamjcsmith/offlinify-angular).
 
 ## Acknowledgements
 
