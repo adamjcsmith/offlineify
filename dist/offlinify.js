@@ -7,7 +7,7 @@ var Offlinify = (function() {
     var pushSync = true;
     var allowIndexedDB = true; /* Switching to false disables IndexedDB */
     var allowRemote = true;
-    var earlyDataReturn = false; /* Return IDB records immediately - results in two callback calls */
+    var csrfCookieHeader = true; /* Return IDB records immediately - results in two callback calls */
 
     // Error Config (Response Codes):
     var retryOnResponseCodes = [401,500,502]; /* Keep item (optimistically) on queue */
@@ -45,14 +45,14 @@ var Offlinify = (function() {
       pushSync = config.pushSync || pushSync;
       allowIndexedDB = config.allowIndexedDB || allowIndexedDB;
       allowRemote = config.allowRemote || allowRemote;
-      earlyDataReturn = config.earlyDataReturn || earlyDataReturn;
+      csrfCookieHeader = config.csrfCookieHeader || csrfCookieHeader;
       retryOnResponseCodes = config.retryOnResponseCodes || retryOnResponseCodes;
       replaceOnResponseCodes = config.replaceOnResponseCodes || replaceOnResponseCodes;
       maxRetry = config.maxRetry || maxRetry;
       indexedDBDatabaseName = config.indexedDBDatabaseName || indexedDBDatabaseName;
 
       if(setupState == 0) setupState = 1; // Support re-init
-      startSyncProcess();
+      _startSyncProcess();
     };
 
     function objectStore(name, primaryKeyProp, timestampProp, readURL, createURL, updateURL, readDataPrefix, postDataPrefix) {
@@ -75,27 +75,21 @@ var Offlinify = (function() {
 
       newObjStore.data = [];
       serviceDB.push(newObjStore);
-    };
+    }
 
     /* --------------- Create/Update and Retrieve --------------- */
 
     // Filters create or update ops by queue state:
     function objectUpdate(obj, store, onAccept, onSync, onError) {
-      deferIfSyncing(function() {
-        if(!checkIfObjectStoreExists(store)) { onError("Incorrect ObjectStore."); return; }
+      _deferIfSyncing(function() {
+        if(!_getObjStore(store)) { onError("Incorrect ObjectStore."); return; }
         _.set(obj, _getObjStore(store).timestampProperty, _generateTimestamp());
 
-        if(!obj.hasOwnProperty("properties")) {
-          obj.properties = {};
-        }
-
-        console.log("The object running through objectUpdate is: " + JSON.stringify(obj));
+        if(!obj.hasOwnProperty("properties")) obj.properties = {}; // add if not existing
 
         if(obj.properties.hasOwnProperty("syncState")) {
-          console.log("objectUpdate: update operation detected.");
           if(obj.properties.syncState > 0) { obj.properties.syncState = 2; }
         } else {
-          console.log("objectUpdate: create operation detected.");
           obj = _.cloneDeep(obj);
           obj.properties.syncState = 0;
           _.set(obj, _getObjStore(store).primaryKeyProperty, _generateUUID());
@@ -103,21 +97,20 @@ var Offlinify = (function() {
         obj.onSyncCallback = '(' + onSync + ')'; // Convert to string.
         obj.onErrorCallback = '(' + onError + ')';
         _patchLocal(obj, store, function(response) {
-          if(pushSync) sync(_notifyObservers);
+          if(pushSync) _sync(_notifyObservers);
 
           // Test whether object was added:
-          objectExistsInIDB(obj, store, function(response) {
+          _objectExistsInIDB(obj, store, function(response) {
             if(response !== undefined) onAccept(response);
             else onError();
           });
 
         });
       });
-    };
+    }
 
-    function objectExistsInIDB(obj, store, callback) {
+    function _objectExistsInIDB(obj, store, callback) {
       _getIDB(objectStoreName, function(data) {
-        console.log("objectExistsInIDB called.");
         var objStoreFromIDB = _.find(data, {name: store});
         if(objStoreFromIDB === undefined) { return undefined; }
         var objCandidate = _.find(objStoreFromIDB.data, function(o) {
@@ -125,13 +118,10 @@ var Offlinify = (function() {
           var serviceUUID = _.get(obj, _getObjStore(store).primaryKeyProperty);
           return idbUUID == serviceUUID;
         });
-        console.log("objCandidate was: " + JSON.stringify(objCandidate));
         if(objCandidate !== undefined) {
-          console.log("returning objCandidate");
            callback(objCandidate);
         }
         else {
-          console.log("returning undefined");
           callback(undefined);
         }
       });
@@ -139,29 +129,19 @@ var Offlinify = (function() {
 
     // Wraps up the data and queues the callback when required:
     function wrapData(store, callback) {
-      deferIfSyncing(function() {
-        if(!checkIfObjectStoreExists(store)) return;
+      _deferIfSyncing(function() {
+        if(!_getObjStore(store)) return;
         if(_getObjStore(store).originalWrapper !== undefined) {
           var originalWrapper = _getObjStore(store).originalWrapper;
-          //console.log("originalWrapper, before data manipulation, was: " + JSON.stringify(originalWrapper));
           var currentData = _getObjStore(store).data;
           _.set(originalWrapper, _getObjStore(store).readDataPrefix, currentData);
-          //console.log("the originalWrapper being sent back is: " + JSON.stringify(originalWrapper));
-          //console.log("the currentData in wrapData was: " + JSON.stringify(currentData));
           callback(originalWrapper);
         } else {
           callback(_getObjStore(store).data);
         }
       });
-    };
+    }
 
-    function checkIfObjectStoreExists(storeName) {
-      if(!_getObjStore(storeName)) {
-        console.error("objStore '" + storeName + "' does not exist.");
-        return false;
-      }
-      return true;
-    };
 
     /* --------------- Observer Pattern --------------- */
 
@@ -170,64 +150,61 @@ var Offlinify = (function() {
        _establishIDB(function() {
          observerCallbacks.push(ctrlCallback);
        });
-     };
+     }
 
     function _notifyObservers(status) {
       _.forEach(observerCallbacks, function(callback){
         callback(status);
       });
-    };
+    }
 
     /* --------------- Synchronisation --------------- */
 
-    function deferIfSyncing(deferredFunction) {
+    function _deferIfSyncing(deferredFunction) {
       if(!syncInProgress && setupState == 2) deferredFunction();
-      else {deferredFunctions.push(deferredFunction); console.warn("Defer is in progress. "); }
-    };
+      else { deferredFunctions.push(deferredFunction); console.warn("Defer is in progress. "); }
+    }
 
-    function callDeferredFunctions() {
+    function _callDeferredFunctions() {
       _.forEach(deferredFunctions, function(item) { item(); });
       deferredFunctions = [];
-    };
+    }
 
     // Restores local state on first sync, or patches local and remote changes:
-    function sync(callback) {
-      console.log("Sync started.");
+    function _sync(callback) {
+      console.log("_sync started.");
       if(syncInProgress) { return; } // experimental
       syncInProgress = true;
-      if( _getLocalRecords(lastChecked).length == 0 && checkServiceDBEmpty() ) {
+      if( _getLocalRecords(lastChecked).length == 0 && _checkServiceDBEmpty() ) {
         _restoreLocalState( function(localResponse) {
-          if(earlyDataReturn) callback(); // Load IDB records straight into DOM first.
-          mergeData(callback);
+          _mergeData(callback);
         });
       } else {
-        mergeData(callback);
+        _mergeData(callback);
       }
-    };
+    }
 
-    function mergeData(callback) {
+    function _mergeData(callback) {
       _patchRemoteChanges(function(remoteResponse) {
         _reduceQueue(function(queueResponse) {
           callback();
-          syncFinished();
+          _syncFinished();
         });
       });
-    };
+    }
 
-    function syncFinished() {
+    function _syncFinished() {
       console.log("Sync finished.");
       setupState = 2; // finished first sync at least, guaranteed.
-      callDeferredFunctions();
+      _callDeferredFunctions();
       syncInProgress = false;
-    };
+    }
 
     // Patches new changes to serviceDB + indexedDB:
     function _patchRemoteChanges(callback) {
-
       if( !allowRemote || serviceDB.length == 0) { callback(); return; }
 
-      var counter = 0;
-
+      var counter = 0; // keep a count
       function checkIfFinished() {
         counter++;
         if(counter == serviceDB.length) {
@@ -238,45 +215,41 @@ var Offlinify = (function() {
       }
 
       for(var i=0; i<serviceDB.length; i++) {
-          _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
-            if(response.status != 200) { checkIfFinished(); return; }
+        _getRemoteRecords(serviceDB[i].name, i, function(response, serviceDBIndex) {
+          if(response.status != 200) { checkIfFinished(); return; }
 
-            // Check for model changes:
-            checkForModelChanges(response.data, serviceDB[serviceDBIndex].name, function(result) {
+          // Check for model changes:
+          _checkForModelChanges(response.data, serviceDB[serviceDBIndex].name, function(result) {
 
-              if(result === true) {
-                // data changed, so reset:
-                console.log("Model change detected for objStore '" + serviceDB[serviceDBIndex].name + "', upgrading...");
-                _patchRemoteChanges(callback); // call again.
-                return;
-              } else {
-                console.log("No model change detected for objStore '" + serviceDB[serviceDBIndex].name + "'")
-                _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
-                  checkIfFinished();
-                });
-              }
-
-            });
-
+            if(result === true) {
+              // data changed, so reset:
+              console.log("Model change detected for objStore '" + serviceDB[serviceDBIndex].name + "', upgrading...");
+              _patchRemoteChanges(callback); // call again.
+              return;
+            } else {
+              console.log("No model change detected for objStore '" + serviceDB[serviceDBIndex].name + "'")
+              _patchLocal(response.data, serviceDB[serviceDBIndex].name, function() {
+                checkIfFinished();
+              });
+            }
           });
+        });
       }
-    };
+
+    }
 
     //
-    function checkForModelChanges(newData, objStoreName, callback) {
+    function _checkForModelChanges(newData, objStoreName, callback) {
       if(newData.length == 0 || _getObjStore(objStoreName).data.length == 0) {
         callback(false);
         return; // nothing to check.
       }
 
-      var newCandidate = _.cloneDeep(newData[0]);
+      var newCandidate = newData[0];
       var newCandidateKeys = _.sortBy(_.keys(newCandidate));
 
       var oldCandidate = _getObjStore(objStoreName).data[0];
       var oldCandidateKeys = _.sortBy(_.keys(oldCandidate));
-
-      console.log("newCandidateKeys was: " + newCandidateKeys);
-      console.log("and an equivalent oldCandidateKeys was: " + oldCandidateKeys);
 
       if(!_.isEqual(newCandidateKeys, oldCandidateKeys)) {
         var theObjStore = _getObjStore(objStoreName);
@@ -300,7 +273,7 @@ var Offlinify = (function() {
       } else {
         callback(); // Patched to ServiceDB only.
       }
-    };
+    }
 
     /* --------------- Queue + State --------------- */
 
@@ -310,16 +283,16 @@ var Offlinify = (function() {
       _getIDB(objectStoreName, function(idbRecords) {
 
         // Check for changed objStore declarations:
-        var mergedIDBRecords = upgradeObjStores(idbRecords);
+        var mergedIDBRecords = _upgradeObjStores(idbRecords);
 
         for(var i=0; i<mergedIDBRecords.length; i++) _setLastUpdated(mergedIDBRecords[i]);
         if(mergedIDBRecords.length > 0) serviceDB = mergedIDBRecords;
         callback();
       });
-    };
+    }
 
     // Compare each loaded objStore with the current declarations:
-    function upgradeObjStores(currentIDBRecords) {
+    function _upgradeObjStores(currentIDBRecords) {
 
       var idbCopy = _.cloneDeep(currentIDBRecords);
       for(var i=0; i<serviceDB.length; i++) {
@@ -355,7 +328,7 @@ var Offlinify = (function() {
       if(elements.queue.length > 0) {
         _replaceLastCheckedIfGreater(elements.queue[elements.queue.length -1], store.timestampProperty);
       }
-    };
+    }
 
     // Sort elements by a given property:
     function _sortElements(records, property) {
@@ -395,7 +368,7 @@ var Offlinify = (function() {
           });
         });
       })();
-    };
+    }
 
     // Divide into create and update operation queues:
     function _separateCreateUpdateOperations(records) {
@@ -421,7 +394,7 @@ var Offlinify = (function() {
       itemsToPatch = itemsToPatch.concat(_replaceQueue(serviceDB[objStoreID].name, itemsToReplace));
 
       return itemsToPatch;
-    };
+    }
 
     // Update the syncState value for retry-able elements:
     function _checkSyncState(elementsToRetry) {
@@ -434,7 +407,7 @@ var Offlinify = (function() {
         else survived.push(item);
       });
       return({"survived": survived, "toReplace": toReplace});
-    };
+    }
 
     // Set elements to the epoch to force it to be replaced:
     function _replaceQueue(store, elementsToReplace) {
@@ -442,32 +415,32 @@ var Offlinify = (function() {
         _.set(item, _getObjStore(store).timestampProperty, "1971-01-01T00:00:00.000Z");
       });
       return elementsToReplace;
-    };
+    }
 
     /* --------------- ServiceDB Interface --------------- */
 
-    function checkServiceDBEmpty() {
+    function _checkServiceDBEmpty() {
       var totalRecords = [];
       for(var i=0; i<serviceDB.length; i++) {
         totalRecords = totalRecords.concat(serviceDB[i].data);
       }
       if(totalRecords.length == 0) return true;
       else return false;
-    };
+    }
 
     function _getObjStore(name) {
       return _.find( serviceDB, {"name": name} ) || false;
-    };
+    }
 
     function _patchServiceDB(data, store) {
       var operations = _filterOperations(data, store);
       _updatesToServiceDB(operations.updateOperations, store);
       _pushToServiceDB(operations.createOperations, store);
-    };
+    }
 
     function _pushToServiceDB(array, store) {
       for(var i=0; i<array.length; i++) _getObjStore(store).data.push(array[i]);
-    };
+    }
 
     function _updatesToServiceDB(array, store) {
       for(var i=0; i<array.length; i++) {
@@ -476,7 +449,7 @@ var Offlinify = (function() {
         var matchID = _.findIndex(_getObjStore(store).data, indexJSON);
         if(matchID > -1) _getObjStore(store).data[matchID] = array[i];
       }
-    };
+    }
 
     function _getLocalRecords(sinceTime) {
       var totalRecords = [];
@@ -490,7 +463,7 @@ var Offlinify = (function() {
         }));
       }
       return totalRecords;
-    };
+    }
 
     /* --------------- Data Handling --------------- */
 
@@ -512,12 +485,12 @@ var Offlinify = (function() {
     function _resetSyncState(records) {
       for(var i=0; i<records.length; i++) records[i].properties.syncState = 1;
       return records;
-    };
+    }
 
     /* --------------- Remote --------------- */
 
     function _getRemoteRecords(store, originalIndex, callback) {
-      receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
+      _receiveData(_getObjStore(store).readURL + lastChecked, function(response) {
         if(response.data != [] && response.response > 0) {
           if(typeof response.data !== 'object') response.data = JSON.parse(response.data);
           // Unprefix data:
@@ -531,7 +504,7 @@ var Offlinify = (function() {
           callback({data: [], status: response.response}, originalIndex);
         }
       });
-    };
+    }
 
     // Tries to post an array one-by-one; returns successful elements.
     function _safeArrayPost(array, url, objStoreName, callback) {
@@ -543,15 +516,13 @@ var Offlinify = (function() {
 
       if(array.length == 0) { callback({"toPop": [], "toRetry": [], "toReplace": [], "noChange": []}); return; }
       (function loopArray() {
-        sendData(array[x],url,objStoreName,function(response) {
+        _sendData(array[x],url,objStoreName,function(response) {
           if(x >= array.length) return;
-
-          console.log("THe response was: " + response);
 
           if(response == 200) {
             toPop.push(array[x]);
             if(array[x].onSyncCallback) {
-              console.log("This object would have synchronised!!!!!!!!");
+              console.log("Object synchronised with the server.");
               var syncCallback = eval(array[x].onSyncCallback);
               syncCallback(array[x]);
             }
@@ -567,7 +538,7 @@ var Offlinify = (function() {
                 errCallback(response); // Return entire response
               }
             } else {
-              toRetry.push(array[x]); // for now, retry on unknown code.
+              toRetry.push(array[x]); // Retry on unknown code.
             }
           }
 
@@ -576,13 +547,13 @@ var Offlinify = (function() {
           else { callback({"toPop": toPop, "toRetry": toRetry, "toReplace": toReplace, "noChange": noChange}); }
         });
       })();
-    };
+    }
 
     /* --------------- IndexedDB --------------- */
 
     function _IDBSupported() {
       return !( indexedDB === undefined || indexedDB === null );
-    };
+    }
 
     function _establishIDB(callback) {
       if(!_IDBSupported() || idb) { callback(); return; } // End if no support or disabled
@@ -606,12 +577,11 @@ var Offlinify = (function() {
         callback();
       };
       request.onerror = function() { console.error(this.error); };
-    };
+    }
 
     // Get the entire IndexedDB image:
     function _getIDB(storeName, callback) {
       var transaction = _newIDBTransaction(storeName);
-      console.log("objectStores were: " + JSON.stringify(idb.objectStoreNames));
       var objStore = transaction.objectStore(storeName);
       var keyRange = IDBKeyRange.lowerBound(0);
       //var cursorRequest = objStore.index('byDate').openCursor(keyRange);
@@ -627,42 +597,39 @@ var Offlinify = (function() {
         result.continue();
       };
       cursorRequest.onerror = function() { console.error("error"); };
-    };
+    }
 
     // Replaces an older IDB store with a new local one:
     function _replaceIDBStore(store, callback) {
-      // Reject request if no store by that name exists:
-      if(!checkIfObjectStoreExists(store)) { callback(); return; }
+      if(!_getObjStore(store)) { callback(); return; }
       _bulkStripHashKeys(_getObjStore(store).data); // Strip Angular-like hashkeys
       var objStore = _newIDBTransaction(objectStoreName).objectStore(objectStoreName);
       var theNewObjStore = _.cloneDeep(_getObjStore(store));
-      //console.log(theNewObjStore);
-      //var theNewObjStore = JSON.parse(JSON.stringify(_getObjStore(store)));
-      theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); /* This makes it work... */
+      theNewObjStore.data = JSON.parse(JSON.stringify(theNewObjStore.data)); // Ensure serialisation
       objStore.put(theNewObjStore).onsuccess = function() {
         callback();
         return;
       }
-    };
+    }
 
     function _newIDBTransaction(storeName) {
       return idb.transaction([storeName], 'readwrite');
-    };
+    }
 
     /* --------------- Utilities --------------- */
 
     function _unwrapData(data, store) {
       var objStore = _getObjStore(store);
-      var nestedData = _.get(data, _getObjStore(store).readDataPrefix) || []; // handle empty data. - this returns undefined on no remote connection
+      var nestedData = _.get(data, _getObjStore(store).readDataPrefix) || []; // handle empty data.
       objStore.originalWrapper = data;
       _.set(objStore.originalWrapper, objStore.readDataPrefix, []);
       return nestedData;
-    };
+    }
 
     function _generateTimestamp() {
       var d = new Date();
       return d.toISOString();
-    };
+    }
 
     // (v4) With thanks to http://stackoverflow.com/a/8809472/3381433
     function _generateUUID() {
@@ -676,50 +643,45 @@ var Offlinify = (function() {
           return (c=='x' ? r : (r&0x3|0x8)).toString(16);
       });
       return uuid;
-    };
+    }
 
     function _bulkStripHashKeys(array) {
       for(var i=0; i<array.length; i++) {
         delete array[i].$$hashKey;
       }
       return array;
-    };
+    }
 
     function wipe() {
-      deferIfSyncing(wipeImmediately);
+      _deferIfSyncing(wipeImmediately);
     }
 
     function wipeImmediately() {
       indexedDB.deleteDatabase(indexedDBDatabaseName);
       serviceDB = [];
       console.warn("Database wiped.");
-    };
+    }
 
     /* --------------- ContextStore API --------------- */
 
+    // Find saved object in IDB with a key:
     function getContext(key, callback) {
-      deferIfSyncing(
-        function() {
-          _getIDB(contextStoreObjectStoreName, function(data) {
-            console.log("Accessed contextStore objStore.");
-
-            // With the data, find() the object with the key:
-            callback(_.find(data, {"key": key}));
-          });
-        }
+      _deferIfSyncing(function() {
+        _getIDB(contextStoreObjectStoreName, function(data) {
+          callback(_.find(data, {"key": key}));
+        });
+      }
       );
     }
 
+    // Save object in IDB using a valid key:
     function saveContext(contextObject, callback) {
-      deferIfSyncing(
-        function() {
-
-          var objStore = _newIDBTransaction(contextStoreObjectStoreName).objectStore(contextStoreObjectStoreName);
-          objStore.put(contextObject).onsuccess = function() {
-            callback();
+      _deferIfSyncing(function() {
+        var objStore = _newIDBTransaction(contextStoreObjectStoreName).objectStore(contextStoreObjectStoreName);
+        objStore.put(contextObject).onsuccess = function() {
+          callback();
             return;
           }
-
         }
       );
     }
@@ -733,46 +695,33 @@ var Offlinify = (function() {
         objStore.data = [];
       });
       return objStoreMap;
-    };
+    }
 
     /* --------------- $http re-implementation --------------- */
 
-    function receiveData(url, callback) {
+    function _receiveData(url, callback) {
       var request = new XMLHttpRequest();
       request.open('GET', url, true);
       request.onload = function() {
         if (request.status >= 200 && request.status < 400) {
-          // 2xx - 3xx response:
-          console.log("in receiveData, the request.status was: " + request.status);
-          callback({ response: request.status, data: request.response });
+          callback({ response: request.status, data: request.response }); // 2xx - 3xx response:
         } else {
-          // 4xx - 5xx response:
-          console.log("Target server returned a " + request.status + " error");
-          callback({ response: request.status, data: [] });
+          callback({ response: request.status, data: [] }); // 4xx - 5xx response:
         }
-      };
-
-      // Server unreachable:
+      }
       request.onerror = function() {
-        console.log("A connection error was received for: " + url);
-        callback({ response: 0, data: [] });
+        callback({ response: 0, data: [] }); // Server unreachable:
       };
-
       request.send();
-    };
+    }
 
-    function sendData(data, url, objStoreName, callback) {
-      console.log("Send data function was called.");
-      console.log("document.cookie is: " + document.cookie.replace('xcsrfcookie=', ''));
-
+    function _sendData(data, url, objStoreName, callback) {
       if(_getObjStore(objStoreName).postDataPrefix !== undefined) {
         var prefix = _getObjStore(objStoreName).postDataPrefix;
         var tempData = _.cloneDeep(data);
         var tempObj = {};
-        //console.log("data was: " + JSON.stringify(tempObj));
         data = [];
-        tempObj[prefix] = JSON.stringify(tempData); // EXPERIMENTAL!!!!!!!!!!!!!
-        //console.log("New data with prefix through sendData is: " + JSON.stringify(tempObj));
+        tempObj[prefix] = JSON.stringify(tempData); // experimental
         data = tempObj;
       }
 
@@ -781,11 +730,12 @@ var Offlinify = (function() {
       request.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
 
       /* Get the CSRF token */
-      var reg = new RegExp("xcsrfcookie=([^;]+)");
-      var value = reg.exec(document.cookie);
+      if(csrfCookieHeader) {
+        var reg = new RegExp("xcsrfcookie=([^;]+)");
+        var value = reg.exec(document.cookie);
+        request.setRequestHeader("X-CSRFToken", value[0].replace('xcsrfcookie=', ''));
+      }
 
-      request.setRequestHeader("X-CSRFToken", value[0].replace('xcsrfcookie=', ''));
-      console.log("Being sent to the server: " + JSON.stringify(data));
       request.send(JSON.stringify(data));
       request.onreadystatechange = function() {
         callback(request.status); // Return status and defer logic until later
@@ -800,18 +750,18 @@ var Offlinify = (function() {
     /* --------------- Sync Loop -------------- */
 
     // Called by config to denote end of setup:
-    function startSyncProcess() {
+    function _startSyncProcess() {
       _establishIDB(function() {
         (function syncLoop() {
           setTimeout(function() {
-            sync(function(response) {
+            _sync(function(response) {
               _notifyObservers(response);
             });
             if(autoSync > 0 && parseInt(autoSync) === autoSync) syncLoop();
           }, autoSync);
         })();
       });
-    };
+    }
 
     /* --------------- Method Exposure --------------- */
 
